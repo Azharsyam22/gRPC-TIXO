@@ -1,0 +1,87 @@
+syntax = "proto3";
+
+package tixo;
+
+// Service Reservasi Bioskop Real-Time TIXO
+service TixoService {
+  // 1. Unary RPC: Mendapatkan snapshot seluruh status kursi pada suatu jadwal (schedule)
+  rpc GetDaftarKursi (GetDaftarKursiRequest) returns (GetDaftarKursiResponse);
+
+  // 2. Unary RPC: Memesan kursi spesifik (Terproteksi dari race condition dengan SELECT FOR UPDATE)
+  rpc PesanKursi (PesanKursiRequest) returns (PesanKursiResponse);
+
+  // 3. Server Streaming RPC: Membuka channel stream status kursi secara real-time
+  rpc PantauStatusKursi (PantauStatusRequest) returns (stream StatusKursiUpdate);
+
+  // 4. Unary RPC: Membatalkan pesanan kursi dan mengembalikannya ke status AVAILABLE
+  rpc BatalPesanan (BatalPesananRequest) returns (BatalPesananResponse);
+}
+
+// Status Kursi
+enum SeatStatus {
+  AVAILABLE = 0;
+  PENDING = 1;
+  BOOKED = 2;
+}
+
+// Struktur Data Kursi
+message Seat {
+  string id = 1;
+  string schedule_id = 2;
+  string seat_number = 3;
+  SeatStatus status = 4;
+  string updated_at = 5;
+}
+
+// 1. GetDaftarKursi
+message GetDaftarKursiRequest {
+  string schedule_id = 1;
+}
+
+message GetDaftarKursiResponse {
+  string schedule_id = 1;
+  repeated Seat seats = 2;
+}
+
+// 2. PesanKursi
+message PesanKursiRequest {
+  string schedule_id = 1;
+  string seat_number = 2;
+  string user_id = 3;
+  string transaction_id = 4; // UUID v4 / Idempotency Key
+}
+
+message PesanKursiResponse {
+  bool success = 1;
+  string message = 2;
+  Seat seat = 3;
+  string transaction_id = 4;
+}
+
+// 3. PantauStatusKursi (Streaming)
+message PantauStatusRequest {
+  string schedule_id = 1;
+  string client_id = 2;
+}
+
+message StatusKursiUpdate {
+  string schedule_id = 1;
+  string seat_number = 2;
+  SeatStatus status = 3;
+  int64 timestamp = 4;
+}
+
+// 4. BatalPesanan
+message BatalPesananRequest {
+  string schedule_id = 1;
+  string seat_number = 2;
+  string user_id = 3;
+  string transaction_id = 4;
+}
+
+message BatalPesananResponse {
+  bool success = 1;
+  string message = 2;
+  Seat seat = 3;
+}
+
