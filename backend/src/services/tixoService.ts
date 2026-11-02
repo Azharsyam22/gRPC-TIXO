@@ -1,4 +1,5 @@
 import * as grpc from '@grpc/grpc-js';
+import crypto from 'crypto';
 import { RowDataPacket } from 'mysql2/promise';
 import { pool, withTransaction } from '../config/database';
 import { streamManager, TixoStreamCall } from './streamManager';
@@ -20,6 +21,14 @@ export interface ISeatDbRow extends RowDataPacket {
   seat_number: string;
   status: 'AVAILABLE' | 'PENDING' | 'BOOKED';
   updated_at: Date | string;
+}
+
+// Interface baris database untuk tabel idempotency_keys
+export interface IIdempotencyDbRow extends RowDataPacket {
+  key_id: string;
+  request_hash: string;
+  response_payload: string | { [key: string]: unknown };
+  created_at: Date | string;
 }
 
 /**
@@ -50,6 +59,13 @@ export function mapProtoStatusToDb(status: SeatStatus): 'AVAILABLE' | 'PENDING' 
     default:
       return 'AVAILABLE';
   }
+}
+
+/**
+ * Membuat hash SHA-256 dari parameter request untuk verifikasi integritas idempotency
+ */
+export function generateRequestHash(payload: string): string {
+  return crypto.createHash('sha256').update(payload).digest('hex');
 }
 
 /**
@@ -90,7 +106,8 @@ export async function getDaftarKursiHandler(
 }
 
 /**
- * 2. RPC PesanKursi: Memesan kursi dengan proteksi Race Condition menggunakan SELECT ... FOR UPDATE
+ * 2. RPC PesanKursi: Memesan kursi dengan proteksi Race Condition (SELECT ... FOR UPDATE)
+ * dan proteksi idempotensi / de-duplikasi via transaction_id
  */
 export async function pesanKursiHandler(
   call: grpc.ServerUnaryCall<IPesanKursiRequest, IPesanKursiResponse>,
@@ -106,11 +123,29 @@ export async function pesanKursiHandler(
     return;
   }
 
+  const requestHash = generateRequestHash(`${schedule_id}:${seat_number}:${user_id}`);
+
   try {
     // Eksekusi transaksi terisolasi dengan Row-Level Lock
     const result = await withTransaction<IPesanKursiResponse>(async (conn) => {
+      // TAHAP 6: Validasi Idempotency Key terlebih dahulu
+      const [idempotencyRows] = await conn.execute<IIdempotencyDbRow[]>(
+        'SELECT key_id, request_hash, response_payload FROM idempotency_keys WHERE key_id = ? FOR UPDATE',
+        [transaction_id]
+      );
+
+      if (idempotencyRows.length > 0) {
+        const cachedRow = idempotencyRows[0]!;
+        console.log(`[TIXO-DEDUPE] Request duplikat terdeteksi untuk transaction_id: ${transaction_id}. Mengembalikan respons dari cache.`);
+
+        const cachedPayload = typeof cachedRow.response_payload === 'string'
+          ? (JSON.parse(cachedRow.response_payload) as IPesanKursiResponse)
+          : (cachedRow.response_payload as unknown as IPesanKursiResponse);
+
+        return cachedPayload;
+      }
+
       // 1. Eksekusi query kuncian baris (Locking Read)
-      // Baris ini akan terkunci (Exclusive Lock) sehingga request bersamaan terblokir sampai commit/rollback selesai
       const [rows] = await conn.execute<ISeatDbRow[]>(
         'SELECT id, schedule_id, seat_number, status, updated_at FROM seats WHERE schedule_id = ? AND seat_number = ? FOR UPDATE',
         [schedule_id, seat_number]
@@ -128,7 +163,7 @@ export async function pesanKursiHandler(
 
       // 2. Evaluasi status ketersediaan kursi
       if (seatRow.status !== 'AVAILABLE') {
-        return {
+        const failureResponse: IPesanKursiResponse = {
           success: false,
           message: `Pemesanan gagal: Kursi ${seat_number} sudah dipesan atau sedang diproses oleh pengguna lain.`,
           transaction_id,
@@ -140,6 +175,14 @@ export async function pesanKursiHandler(
             updated_at: typeof seatRow.updated_at === 'string' ? seatRow.updated_at : seatRow.updated_at.toISOString(),
           },
         };
+
+        // Cache hasil kegagalan untuk transaction_id ini
+        await conn.execute(
+          'INSERT INTO idempotency_keys (key_id, request_hash, response_payload) VALUES (?, ?, ?)',
+          [transaction_id, requestHash, JSON.stringify(failureResponse)]
+        );
+
+        return failureResponse;
       }
 
       // 3. Status masih AVAILABLE -> Mutasi baris menjadi BOOKED
@@ -162,15 +205,23 @@ export async function pesanKursiHandler(
         updated_at: new Date().toISOString(),
       };
 
-      return {
+      const successResponse: IPesanKursiResponse = {
         success: true,
         message: `Kursi ${seat_number} berhasil dipesan!`,
         transaction_id,
         seat: updatedSeat,
       };
+
+      // 5. Simpan respons ke idempotency_keys untuk proteksi retry ke depannya
+      await conn.execute(
+        'INSERT INTO idempotency_keys (key_id, request_hash, response_payload) VALUES (?, ?, ?)',
+        [transaction_id, requestHash, JSON.stringify(successResponse)]
+      );
+
+      return successResponse;
     });
 
-    // 5. Jika transaksi komit dan sukses, siarkan ke seluruh client streaming secara serentak
+    // 6. Jika transaksi komit dan sukses, siarkan ke seluruh client streaming secara serentak
     if (result.success && result.seat) {
       streamManager.broadcastSeatUpdate(schedule_id, seat_number, SeatStatus.BOOKED);
     }
@@ -206,6 +257,7 @@ export function pantauStatusKursiHandler(call: TixoStreamCall): void {
 
 /**
  * 4. RPC BatalPesanan: Mengembalikan status kursi menjadi AVAILABLE
+ * dengan proteksi de-duplikasi idempotency key
  */
 export async function batalPesananHandler(
   call: grpc.ServerUnaryCall<IBatalPesananRequest, IBatalPesananResponse>,
@@ -221,8 +273,28 @@ export async function batalPesananHandler(
     return;
   }
 
+  const cancelKey = `cancel-${transaction_id}`;
+  const requestHash = generateRequestHash(`cancel:${schedule_id}:${seat_number}:${user_id}`);
+
   try {
     const result = await withTransaction<IBatalPesananResponse>(async (conn) => {
+      // Cek apakah aksi pembatalan untuk transaction_id ini sudah pernah diproses
+      const [idempotencyRows] = await conn.execute<IIdempotencyDbRow[]>(
+        'SELECT key_id, response_payload FROM idempotency_keys WHERE key_id = ? FOR UPDATE',
+        [cancelKey]
+      );
+
+      if (idempotencyRows.length > 0) {
+        const cachedRow = idempotencyRows[0]!;
+        console.log(`[TIXO-DEDUPE] Pembatalan duplikat terdeteksi untuk: ${cancelKey}. Mengembalikan respons tersimpan.`);
+
+        const cachedPayload = typeof cachedRow.response_payload === 'string'
+          ? (JSON.parse(cachedRow.response_payload) as IBatalPesananResponse)
+          : (cachedRow.response_payload as unknown as IBatalPesananResponse);
+
+        return cachedPayload;
+      }
+
       const [rows] = await conn.execute<ISeatDbRow[]>(
         'SELECT id, schedule_id, seat_number, status, updated_at FROM seats WHERE schedule_id = ? AND seat_number = ? FOR UPDATE',
         [schedule_id, seat_number]
@@ -238,10 +310,17 @@ export async function batalPesananHandler(
       const seatRow = rows[0]!;
 
       if (seatRow.status !== 'BOOKED') {
-        return {
+        const failureResponse: IBatalPesananResponse = {
           success: false,
           message: `Kursi ${seat_number} tidak dapat dibatalkan karena berstatus ${seatRow.status}.`,
         };
+
+        await conn.execute(
+          'INSERT INTO idempotency_keys (key_id, request_hash, response_payload) VALUES (?, ?, ?)',
+          [cancelKey, requestHash, JSON.stringify(failureResponse)]
+        );
+
+        return failureResponse;
       }
 
       // Kembalikan ke AVAILABLE
@@ -253,7 +332,7 @@ export async function batalPesananHandler(
       // Catat log pembatalan
       await conn.execute(
         'INSERT INTO transactions (transaction_id, seat_id, user_id, status) VALUES (?, ?, ?, ?)',
-        [`cancel-${transaction_id}`, seatRow.id, user_id, 'CANCELLED']
+        [cancelKey, seatRow.id, user_id, 'CANCELLED']
       );
 
       const updatedSeat: ISeat = {
@@ -264,11 +343,19 @@ export async function batalPesananHandler(
         updated_at: new Date().toISOString(),
       };
 
-      return {
+      const successResponse: IBatalPesananResponse = {
         success: true,
         message: `Pemesanan kursi ${seat_number} berhasil dibatalkan.`,
         seat: updatedSeat,
       };
+
+      // Simpan jejak idempotensi pembatalan
+      await conn.execute(
+        'INSERT INTO idempotency_keys (key_id, request_hash, response_payload) VALUES (?, ?, ?)',
+        [cancelKey, requestHash, JSON.stringify(successResponse)]
+      );
+
+      return successResponse;
     });
 
     if (result.success && result.seat) {
