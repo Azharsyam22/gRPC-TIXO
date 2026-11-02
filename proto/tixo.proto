@@ -7,14 +7,26 @@ service TixoService {
   // 1. Unary RPC: Mendapatkan snapshot seluruh status kursi pada suatu jadwal (schedule)
   rpc GetDaftarKursi (GetDaftarKursiRequest) returns (GetDaftarKursiResponse);
 
-  // 2. Unary RPC: Memesan kursi spesifik (Terproteksi dari race condition dengan SELECT FOR UPDATE)
+  // 2. Unary RPC: Memesan kursi tunggal (Terproteksi dari race condition dengan SELECT FOR UPDATE)
   rpc PesanKursi (PesanKursiRequest) returns (PesanKursiResponse);
 
-  // 3. Server Streaming RPC: Membuka channel stream status kursi secara real-time
+  // 3. Unary RPC: Memesan banyak kursi sekaligus (Batch Booking) dengan total harga terverifikasi
+  rpc PesanBanyakKursi (PesanBanyakKursiRequest) returns (PesanBanyakKursiResponse);
+
+  // 4. Server Streaming RPC: Membuka channel stream status kursi secara real-time
   rpc PantauStatusKursi (PantauStatusRequest) returns (stream StatusKursiUpdate);
 
-  // 4. Unary RPC: Membatalkan pesanan kursi dan mengembalikannya ke status AVAILABLE
+  // 5. Unary RPC: Membatalkan pesanan kursi dan mengembalikannya ke status AVAILABLE
   rpc BatalPesanan (BatalPesananRequest) returns (BatalPesananResponse);
+
+  // 6. Unary RPC: Mengambil katalog seluruh film yang sedang tayang
+  rpc GetKatalogFilm (GetKatalogFilmRequest) returns (GetKatalogFilmResponse);
+
+  // 7. Unary RPC: Mengambil seluruh jadwal tayang (bisa difilter berdasarkan movie_id)
+  rpc GetDaftarJadwal (GetDaftarJadwalRequest) returns (GetDaftarJadwalResponse);
+
+  // 8. Unary RPC: Otentikasi dan login pengguna via akun Google / Gmail
+  rpc SignInWithGoogle (GoogleSignInRequest) returns (GoogleSignInResponse);
 }
 
 // Status Kursi
@@ -33,6 +45,20 @@ message Seat {
   string updated_at = 5;
 }
 
+// Metadata Detail Jadwal & Harga
+message ScheduleDetail {
+  string id = 1;
+  string movie_id = 2;
+  string movie_name = 3;
+  string studio_name = 4;
+  string start_time = 5;       // Format DATETIME misal: "2026-11-03 19:30:00"
+  string date_formatted = 6;    // Contoh: "Selasa, 3 Nov 2026"
+  string time_formatted = 7;    // Contoh: "19.30 WIB"
+  int32 base_price = 8;         // Hari biasa: Rp 40.000
+  int32 ticket_price = 9;       // Final price: Rp 40.000 (Weekday) atau Rp 45.000 (Weekend)
+  bool is_weekend = 10;         // True jika Sabtu / Minggu (+Rp 5.000)
+}
+
 // 1. GetDaftarKursi
 message GetDaftarKursiRequest {
   string schedule_id = 1;
@@ -41,14 +67,16 @@ message GetDaftarKursiRequest {
 message GetDaftarKursiResponse {
   string schedule_id = 1;
   repeated Seat seats = 2;
+  ScheduleDetail schedule = 3;
 }
 
-// 2. PesanKursi
+// 2. PesanKursi (Single Seat)
 message PesanKursiRequest {
   string schedule_id = 1;
   string seat_number = 2;
   string user_id = 3;
   string transaction_id = 4; // UUID v4 / Idempotency Key
+  string user_email = 5;
 }
 
 message PesanKursiResponse {
@@ -56,9 +84,28 @@ message PesanKursiResponse {
   string message = 2;
   Seat seat = 3;
   string transaction_id = 4;
+  int32 price_paid = 5;
 }
 
-// 3. PantauStatusKursi (Streaming)
+// 3. PesanBanyakKursi (Multi-Seat Selection)
+message PesanBanyakKursiRequest {
+  string schedule_id = 1;
+  repeated string seat_numbers = 2;
+  string user_id = 3;
+  string user_email = 4;
+  string transaction_id = 5;
+}
+
+message PesanBanyakKursiResponse {
+  bool success = 1;
+  string message = 2;
+  repeated Seat seats = 3;
+  int32 total_price = 4;
+  int32 price_per_ticket = 5;
+  string transaction_id = 6;
+}
+
+// 4. PantauStatusKursi (Streaming)
 message PantauStatusRequest {
   string schedule_id = 1;
   string client_id = 2;
@@ -71,7 +118,7 @@ message StatusKursiUpdate {
   int64 timestamp = 4;
 }
 
-// 4. BatalPesanan
+// 5. BatalPesanan
 message BatalPesananRequest {
   string schedule_id = 1;
   string seat_number = 2;
@@ -85,3 +132,52 @@ message BatalPesananResponse {
   Seat seat = 3;
 }
 
+// 6. Katalog Film
+message Movie {
+  string id = 1;
+  string title = 2;
+  string edition = 3;
+  string genre = 4;
+  int32 duration_minutes = 5;
+  string poster_url = 6;
+  string synopsis = 7;
+  string rating = 8;
+  string default_studio = 9;
+}
+
+message GetKatalogFilmRequest {}
+
+message GetKatalogFilmResponse {
+  repeated Movie movies = 1;
+}
+
+// 7. Daftar Jadwal
+message GetDaftarJadwalRequest {
+  string movie_id = 1; // Opsional: Kosongkan untuk melihat seluruh jadwal
+}
+
+message GetDaftarJadwalResponse {
+  repeated ScheduleDetail schedules = 1;
+}
+
+// 8. Sign In with Google / Gmail
+message UserProfile {
+  string id = 1;
+  string email = 2;
+  string name = 3;
+  string avatar_url = 4;
+}
+
+message GoogleSignInRequest {
+  string id_token = 1; // Google OAuth JWT or client ID
+  string email = 2;
+  string name = 3;
+  string avatar_url = 4;
+}
+
+message GoogleSignInResponse {
+  bool success = 1;
+  string message = 2;
+  UserProfile user = 3;
+  string session_token = 4;
+}

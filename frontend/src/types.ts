@@ -14,6 +14,7 @@ export interface BookingResponse {
   message: string
   seat?: Seat
   transaction_id: string
+  price_paid?: number
 }
 
 export interface CancellationResponse {
@@ -25,6 +26,7 @@ export interface CancellationResponse {
 export interface RecentBooking {
   seat: Seat
   transaction_id: string
+  price?: number
 }
 
 export interface ToastMessage {
@@ -32,4 +34,11 @@ export interface ToastMessage {
   title: string
   detail: string
   tone: 'success' | 'error' | 'info'
+}
+
+export interface UserProfile {
+  id: string
+  email: string
+  name: string
+  avatar_url?: string
 }

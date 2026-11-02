@@ -7,8 +7,12 @@ import { streamManager } from './services/streamManager';
 import {
   getDaftarKursiHandler,
   pesanKursiHandler,
+  pesanBanyakKursiHandler,
   pantauStatusKursiHandler,
   batalPesananHandler,
+  getKatalogFilmHandler,
+  getDaftarJadwalHandler,
+  signInWithGoogleHandler,
 } from './services/tixoService';
 
 // Muat konfigurasi .env
@@ -30,8 +34,12 @@ export function createTixoServer(): grpc.Server {
   server.addService(serviceDefinition, {
     GetDaftarKursi: getDaftarKursiHandler,
     PesanKursi: pesanKursiHandler,
+    PesanBanyakKursi: pesanBanyakKursiHandler,
     PantauStatusKursi: pantauStatusKursiHandler,
     BatalPesanan: batalPesananHandler,
+    GetKatalogFilm: getKatalogFilmHandler,
+    GetDaftarJadwal: getDaftarJadwalHandler,
+    SignInWithGoogle: signInWithGoogleHandler,
   });
 
   return server;
@@ -61,10 +69,14 @@ export async function startServer(): Promise<grpc.Server> {
         console.log('====================================================');
         console.log(`TIXO gRPC Server Berjalan di: ${HOST}:${port}`);
         console.log('RPC Services Terdaftar:');
-        console.log('   - GetDaftarKursi   (Unary RPC)');
-        console.log('   - PesanKursi       (Unary RPC + Row-Level Locking)');
-        console.log('   - PantauStatusKursi(Server Streaming RPC)');
-        console.log('   - BatalPesanan     (Unary RPC)');
+        console.log('   - GetDaftarKursi    (Unary RPC + Film & Pricing Metadata)');
+        console.log('   - PesanKursi        (Unary RPC + Row-Level Locking)');
+        console.log('   - PesanBanyakKursi  (Unary RPC + Multi-Seat Booking)');
+        console.log('   - PantauStatusKursi (Server Streaming RPC)');
+        console.log('   - BatalPesanan      (Unary RPC)');
+        console.log('   - GetKatalogFilm    (Unary RPC - Multiple Movies)');
+        console.log('   - GetDaftarJadwal   (Unary RPC - Weekday 40rb / Weekend 45rb)');
+        console.log('   - SignInWithGoogle  (Unary RPC - Gmail Auth)');
         console.log('====================================================');
 
         resolve(server);
@@ -112,4 +124,3 @@ if (require.main === module) {
       process.exit(1);
     });
 }
-
