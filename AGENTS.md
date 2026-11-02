@@ -1,3 +1,19 @@
+# TIXO Project — AI IDE Agent Instructions
+
+Semua Agen AI (Cursor, Windsurf, GitHub Copilot, Antigravity, Claude Code) yang bekerja pada repositori ini WAJIB membaca file panduan kolaborasi tim terlebih dahulu:
+👉 **Baca file acuan: `TEAM_GUIDE.md`**
+
+Di dalam `TEAM_GUIDE.md` terdapat:
+1. Batasan modul dan direktori untuk masing-masing peran:
+   - **Azhar:** Backend, Database, Protobuf (`/backend`, `/database`, `/proto`)
+   - **Fajar:** Frontend React Web (`/frontend`)
+   - **Fasha:** DevOps, Envoy Proxy & k6 Load Test (`/envoy`, `/scripts`, `docker-compose.yml`)
+2. Spesifikasi port standar: Backend gRPC `50051`, Envoy Proxy `8080`, MySQL `3306`, Frontend `5173`.
+3. Standar kontrak gRPC 8 RPCs (`proto/tixo.proto`).
+4. Aturan bisnis harga tiket: Hari biasa Rp 40.000, Akhir pekan (Sabtu & Minggu) Rp 45.000 (+Rp 5.000).
+
+---
+
 <!-- antislop:start -->
 ## antislop
 For UI, copy, people, mobile layout, or code comments work, read these installed skill files directly (use these paths even if a same-named global skill exists):

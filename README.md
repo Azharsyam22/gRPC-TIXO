@@ -57,8 +57,8 @@
 +------------------+        +------------------+        +------------------+
 ```
 
-1. **Azhar(Backend & Core gRPC Engineer)**
-   * Merancang kontrak protobuf `proto/cinema.proto` (4 RPCs + 1 Streaming).
+1. **Muhammad Azharuddiya Syam Ramadhan (Backend & Core gRPC Engineer)**
+   * Merancang kontrak protobuf `proto/tixo.proto` (4 RPCs + 1 Streaming).
    * Mengembangkan gRPC Server di Node.js / TypeScript.
    * Mengelola transaksi basis data MySQL dengan *Row-Level Locking* (`SELECT ... FOR UPDATE`).
    * Mengimplementasikan *In-Memory Stream Hub* untuk broadcast event secara real-time.
