@@ -7,7 +7,7 @@
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "type-check": "tsc --noEmit"
+    "test:concurrency": "ts-node src/test/simulateRaceCondition.ts"
   },
   "keywords": [
     "grpc",
@@ -33,4 +33,3 @@
     "typescript": "^5.7.3"
   }
 }
-
