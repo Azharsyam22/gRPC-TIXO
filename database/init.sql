@@ -2,6 +2,14 @@
 CREATE DATABASE IF NOT EXISTS tixo_db;
 USE tixo_db;
 
+-- Hapus tabel lama berurutan (child ke parent) agar skema ter-refresh bersih
+DROP TABLE IF EXISTS transactions;
+DROP TABLE IF EXISTS seats;
+DROP TABLE IF EXISTS schedules;
+DROP TABLE IF EXISTS movies;
+DROP TABLE IF EXISTS idempotency_keys;
+DROP TABLE IF EXISTS users;
+
 -- 1. Tabel Pengguna (Otentikasi Akun Gmail / Google)
 CREATE TABLE IF NOT EXISTS users (
     id VARCHAR(64) PRIMARY KEY,
