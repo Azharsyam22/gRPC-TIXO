@@ -42,3 +42,4 @@ EXPOSE 50051
 
 # Jalankan server
 CMD ["node", "dist/server.js"]
+
