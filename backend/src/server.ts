@@ -59,8 +59,8 @@ export async function startServer(): Promise<grpc.Server> {
         }
 
         console.log('====================================================');
-        console.log(`🎬 TIXO gRPC Server Berjalan di: ${HOST}:${port}`);
-        console.log('📡 RPC Services Terdaftar:');
+        console.log(`TIXO gRPC Server Berjalan di: ${HOST}:${port}`);
+        console.log('RPC Services Terdaftar:');
         console.log('   - GetDaftarKursi   (Unary RPC)');
         console.log('   - PesanKursi       (Unary RPC + Row-Level Locking)');
         console.log('   - PantauStatusKursi(Server Streaming RPC)');

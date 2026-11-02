@@ -1,4 +1,4 @@
-# 🏗 System Design & Architecture — TIXO
+# System Design & Architecture — TIXO
 
 > **Sistem Terdistribusi Reservasi Tiket Bioskop Real-Time Berbasis gRPC & gRPC-Web**  
 > Penulis: Tim Proyek TIXO (Azhar, Fajar, Fasha)  

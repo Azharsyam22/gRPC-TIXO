@@ -1,4 +1,4 @@
-# 🎬 TIXO — Real-Time gRPC Cinema Ticketing System
+﻿# TIXO — Real-Time gRPC Cinema Ticketing System
 
 > **Tugas Proyek Mini: Sistem Terdistribusi Berbasis RPC**  
 > Program Studi Informatika — Universitas Siliwangi  
@@ -6,7 +6,7 @@
 
 ---
 
-## 🤖 [AI IDE INSTRUCTIONS]
+## [AI IDE INSTRUCTIONS]
 *   **Untuk Agen AI (Cursor, GitHub Copilot, Windsurf):**
     *   **Arsitektur Repo:** Monorepo terstruktur (`/frontend`, `/backend`, `/proto`, `/database`, `/envoy`, `/scripts`).
     *   **Bahasa Utama:** TypeScript di Frontend dan Backend (Strict Mode enabled).
@@ -17,12 +17,12 @@
 
 ---
 
-## 📖 Ringkasan Proyek
+## Ringkasan Proyek
 **TIXO** adalah aplikasi pemesanan tiket bioskop berbasis sistem terdistribusi yang memanfaatkan protokol **gRPC** dan **gRPC-Web** untuk komunikasi berlatensi sangat rendah dan sinkronisasi status secara *real-time*. Proyek ini menyelesaikan tantangan *concurrency* saat puluhan *client* mencoba memesan kursi yang sama di milidetik yang sama (*ticket war simulation*), sekaligus menyiarkan status keterisian studio bioskop secara langsung ke seluruh pengguna yang sedang aktif tanpa me-refresh halaman.
 
 ---
 
-## 🛠 Tech Stack
+## Tech Stack
 
 | Layer | Teknologi | Alasan Pemilihan |
 | :--- | :--- | :--- |
@@ -36,7 +36,7 @@
 
 ---
 
-## 👥 Pembagian Tugas & Anggota Kelompok
+## Pembagian Tugas & Anggota Kelompok
 
 ```
                  +---------------------------------------+
@@ -75,7 +75,7 @@
 
 ---
 
-## 📂 Struktur Repositori
+## Struktur Repositori
 
 ```
 ├── backend/                             # Kode Server Node.js + TypeScript (Azhar)
@@ -109,7 +109,7 @@
 
 ---
 
-## 🚀 Panduan Menjalankan Proyek
+## Panduan Menjalankan Proyek
 
 ### Prasyarat
 * Docker & Docker Compose
@@ -155,7 +155,7 @@ npm run dev
 
 ---
 
-## 🧪 Pengujian Konkurensi & Beban (k6)
+## Pengujian Konkurensi & Beban (k6)
 
 Untuk menguji apakah sistem aman dari *race condition* saat beberapa pengguna berebut kursi yang sama:
 ```bash

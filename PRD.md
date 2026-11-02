@@ -1,4 +1,4 @@
-# 📝 Product Requirements Document (PRD) — TIXO
+# Product Requirements Document (PRD) — TIXO
 
 > **Proyek Mini: Sistem Terdistribusi Berbasis RPC**  
 > Program Studi Informatika — Universitas Siliwangi  
@@ -57,9 +57,9 @@
 
 ### 3.2 Antarmuka Pengguna (Frontend React)
 * **FR-05 (Seat Grid Layout):** Merender tata letak studio bioskop 5 baris x 10 kolom dengan indikator warna yang jelas:
-  * 🟢 **AVAILABLE (Hijau):** Kursi bebas, dapat dipilih.
-  * 🟡 **PROCESSING (Kuning):** Sedang dalam proses transaksi.
-  * 🔴 **BOOKED (Merah):** Sudah terjual, disabled / tidak dapat diklik.
+  *  **AVAILABLE (Hijau):** Kursi bebas, dapat dipilih.
+  *  **PROCESSING (Kuning):** Sedang dalam proses transaksi.
+  *  **BOOKED (Merah):** Sudah terjual, disabled / tidak dapat diklik.
 * **FR-06 (Real-Time Reactive UI):** Memanfaatkan client `grpc-web` untuk memantau stream dan mengubah warna tombol kursi secara reaktif tanpa me-refresh halaman browser.
 * **FR-07 (Toast Notification & Error Handling):** Menampilkan pesan notifikasi pop-up saat reservasi sukses atau ketika gagal karena *seat contention*.
 

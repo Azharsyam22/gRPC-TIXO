@@ -8,7 +8,7 @@ dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 const dbHost = process.env.DB_HOST || 'localhost';
 const dbPort = parseInt(process.env.DB_PORT || '3306', 10);
 const dbUser = process.env.DB_USER || 'root';
-const dbPassword = process.env.DB_PASSWORD || 'rootpassword';
+const dbPassword = process.env.DB_PASSWORD !== undefined ? process.env.DB_PASSWORD : '';
 const dbName = process.env.DB_NAME || 'tixo_db';
 const dbLimit = parseInt(process.env.DB_CONNECTION_LIMIT || '20', 10);
 

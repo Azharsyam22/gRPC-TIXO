@@ -12,17 +12,22 @@ export interface ITixoProtoPackage extends grpc.GrpcObject {
  * Checks src/proto/tixo.proto first, falls back to ../proto/tixo.proto.
  */
 export function getProtoPath(): string {
-  const localProtoPath = path.resolve(__dirname, '../proto/tixo.proto');
-  if (fs.existsSync(localProtoPath)) {
-    return localProtoPath;
+  const candidatePaths = [
+    path.resolve(__dirname, '../proto/tixo.proto'),
+    path.resolve(__dirname, '../../src/proto/tixo.proto'),
+    path.resolve(__dirname, '../../../proto/tixo.proto'),
+    path.resolve(process.cwd(), 'src/proto/tixo.proto'),
+    path.resolve(process.cwd(), 'proto/tixo.proto'),
+    path.resolve(process.cwd(), '../proto/tixo.proto'),
+  ];
+
+  for (const p of candidatePaths) {
+    if (fs.existsSync(p)) {
+      return p;
+    }
   }
 
-  const rootProtoPath = path.resolve(__dirname, '../../../proto/tixo.proto');
-  if (fs.existsSync(rootProtoPath)) {
-    return rootProtoPath;
-  }
-
-  throw new Error(`File tixo.proto tidak ditemukan di: ${localProtoPath} maupun ${rootProtoPath}`);
+  throw new Error(`File tixo.proto tidak ditemukan. Pencarian dilakukan di:\n${candidatePaths.join('\n')}`);
 }
 
 /**

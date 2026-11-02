@@ -128,9 +128,9 @@ export async function pesanKursiHandler(
   try {
     // Eksekusi transaksi terisolasi dengan Row-Level Lock
     const result = await withTransaction<IPesanKursiResponse>(async (conn) => {
-      // TAHAP 6: Validasi Idempotency Key terlebih dahulu
+      // Validasi Idempotency Key (Non-locking read untuk menghindari gap lock deadlock)
       const [idempotencyRows] = await conn.execute<IIdempotencyDbRow[]>(
-        'SELECT key_id, request_hash, response_payload FROM idempotency_keys WHERE key_id = ? FOR UPDATE',
+        'SELECT key_id, request_hash, response_payload FROM idempotency_keys WHERE key_id = ?',
         [transaction_id]
       );
 
@@ -280,7 +280,7 @@ export async function batalPesananHandler(
     const result = await withTransaction<IBatalPesananResponse>(async (conn) => {
       // Cek apakah aksi pembatalan untuk transaction_id ini sudah pernah diproses
       const [idempotencyRows] = await conn.execute<IIdempotencyDbRow[]>(
-        'SELECT key_id, response_payload FROM idempotency_keys WHERE key_id = ? FOR UPDATE',
+        'SELECT key_id, response_payload FROM idempotency_keys WHERE key_id = ?',
         [cancelKey]
       );
 

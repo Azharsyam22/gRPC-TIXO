@@ -70,11 +70,11 @@ function sendBookingRequest(
  */
 export async function runRaceConditionSimulation(): Promise<boolean> {
   console.log('================================================================');
-  console.log('⚡ TIXO BACKEND RACE CONDITION CONCURRENCY SIMULATOR ⚡');
-  console.log(`🎯 Target Jadwal : ${TARGET_SCHEDULE}`);
-  console.log(`💺 Target Kursi  : ${TARGET_SEAT}`);
-  console.log(`👥 Jumlah Klien  : ${TOTAL_CONCURRENT_USERS} Pengguna Simultan (Promise.all)`);
-  console.log(`🌐 Alamat Server : ${SERVER_ADDRESS}`);
+  console.log('TIXO BACKEND RACE CONDITION CONCURRENCY SIMULATOR');
+  console.log(`Target Jadwal : ${TARGET_SCHEDULE}`);
+  console.log(`Target Kursi  : ${TARGET_SEAT}`);
+  console.log(`Jumlah Klien  : ${TOTAL_CONCURRENT_USERS} Pengguna Simultan (Promise.all)`);
+  console.log(`Alamat Server : ${SERVER_ADDRESS}`);
   console.log('================================================================\n');
 
   const ClientConstructor = getTixoClientConstructor();
@@ -94,7 +94,7 @@ export async function runRaceConditionSimulation(): Promise<boolean> {
 
   stream.on('data', (update: IStatusKursiUpdate) => {
     console.log(
-      `📡 [STREAM EVENT DITERIMA] Kursi: ${update.seat_number} | Status Baru: ${SeatStatus[update.status]} | Timestamp: ${update.timestamp}`
+      `[STREAM EVENT] Kursi: ${update.seat_number} | Status Baru: ${SeatStatus[update.status]} | Timestamp: ${update.timestamp}`
     );
     streamReceivedEvents.push(update);
   });
@@ -117,7 +117,7 @@ export async function runRaceConditionSimulation(): Promise<boolean> {
     });
   }
 
-  console.log(`\n🚀 Menembakkan ${TOTAL_CONCURRENT_USERS} request PesanKursi secara BERSAMAAN ke kursi ${TARGET_SEAT}...\n`);
+  console.log(`\nMenembakkan ${TOTAL_CONCURRENT_USERS} request PesanKursi secara BERSAMAAN ke kursi ${TARGET_SEAT}...\n`);
 
   // 3. Tembak seluruh request secara simultan menggunakan Promise.all
   const results: ISimulationResult[] = await Promise.all(
@@ -132,31 +132,31 @@ export async function runRaceConditionSimulation(): Promise<boolean> {
   const rejectedList = results.filter((r) => !r.success);
 
   console.log('----------------------------------------------------------------');
-  console.log('📊 DETAIL HASIL EKSEKUSI PER REQUEST:');
+  console.log('DETAIL HASIL EKSEKUSI PER REQUEST:');
   console.log('----------------------------------------------------------------');
   results.forEach((r, idx) => {
-    const statusIcon = r.success ? '✅ SUKSES' : '❌ DITOLAK';
+    const statusText = r.success ? '[SUKSES]' : '[DITOLAK]';
     console.log(
-      `[#${idx + 1}] ${r.userId} | ${statusIcon} (${r.latencyMs}ms) -> ${r.message}`
+      `[#${idx + 1}] ${r.userId} | ${statusText} (${r.latencyMs}ms) -> ${r.message}`
     );
   });
 
   console.log('\n================================================================');
-  console.log('🏆 KESIMPULAN UJI KONKURENSI (RACE CONDITION PROOF):');
+  console.log('KESIMPULAN UJI KONKURENSI (RACE CONDITION PROOF):');
   console.log('================================================================');
-  console.log(`Total Request Terkirim : ${results.length}`);
-  console.log(`Total Sukses (Booked)  : ${successList.length} (Harus tepat 1)`);
-  console.log(`Total Ditolak (Safe)   : ${rejectedList.length} (Harus tepat ${TOTAL_CONCURRENT_USERS - 1})`);
+  console.log(`Total Request Terkirim  : ${results.length}`);
+  console.log(`Total Sukses (Booked)   : ${successList.length} (Harus tepat 1)`);
+  console.log(`Total Ditolak (Safe)    : ${rejectedList.length} (Harus tepat ${TOTAL_CONCURRENT_USERS - 1})`);
   console.log(`Event Broadcast Diterima: ${streamReceivedEvents.length} event`);
 
   let testPassed = false;
   if (successList.length === 1 && rejectedList.length === TOTAL_CONCURRENT_USERS - 1) {
-    console.log('\n🎉 [PASS] RACE CONDITION TERCEGAH DENGAN SEMPURNA! 🎉');
+    console.log('\n[PASS] RACE CONDITION TERCEGAH DENGAN SEMPURNA');
     console.log('Mekanisme Row-Level Locking (SELECT ... FOR UPDATE) berhasil menjaga integritas data.');
     console.log(`Pemenang Kursi: ${successList[0]?.userId} (Transaction ID: ${successList[0]?.transactionId})`);
     testPassed = true;
   } else {
-    console.error('\n💥 [FAIL] TERJADI KORUPSI DATA / DOUBLE BOOKING ATAU KONEKSI SERVER GAGAL!');
+    console.error('\n[FAIL] TERJADI KORUPSI DATA / DOUBLE BOOKING ATAU KONEKSI SERVER GAGAL');
     testPassed = false;
   }
   console.log('================================================================\n');
