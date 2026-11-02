@@ -52,7 +52,7 @@ async function setupDatabase(): Promise<void> {
     console.log(`[TIXO-DB-SETUP] Mengeksekusi ${schemaPath}...`);
     await connection.query(sqlContent);
 
-    console.log('[TIXO-DB-SETUP] Database "tixo_db" dan tabel-tabel berhasil diinisialisasi beserta 50 data kursi.');
+    console.log('[TIXO-DB-SETUP] Database "tixo_db" dan tabel-tabel berhasil diinisialisasi dengan 12 jadwal dan 600 data kursi.');
   } catch (error: unknown) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error('[TIXO-DB-SETUP] Gagal menginisialisasi database:', errorMsg);
