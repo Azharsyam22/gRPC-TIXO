@@ -128,3 +128,4 @@ Kontrak Protocol Buffers berikut adalah acuan tunggal (*single source of truth*)
 4. **Verifikasi Kompilasi Sebelum Commit:**  
    - Backend: Jalankan `npm run type-check && npm run build` di dalam `/backend`.
    - Frontend: Jalankan `npm run build` di dalam `/frontend`.
+
