@@ -160,12 +160,112 @@ Backend mengimplementasikan tiga pola teknis untuk menjamin integritas data:
 
 ---
 
-## 7. Panduan Menjalankan Proyek Secara Cepat (Quickstart)
+## 7. Arsitektur & Spesifikasi Lengkap Frontend Web (/frontend)
 
-### 7.1 Persiapan Awal
+Aplikasi frontend TIXO dibangun sebagai Single Page Application (SPA) berbasis web modern yang responsif, menyajikan visual interaktif bioskop dengan latensi streaming *real-time*.
+
+### 7.1 Stack Teknologi & Struktur Direktori
+* **Framework:** React 18 + TypeScript (Strict Mode).
+* **Build Tool:** Vite 6 (Waktu build produksi ~1 detik).
+* **Styling:** Tailwind CSS v4 dengan CSS Custom Variables untuk tema ganda (*Dark Mode* / *Light Mode*).
+* **gRPC-Web Driver:** `grpc-web` dan `protobufjs` (kompilasi skema `.proto` dinamis secara in-memory di browser tanpa memerlukan *build-step* compiler C++ protoc terpisah).
+
+Struktur modul frontend (`/frontend/src`):
+```
+frontend/src/
+├── components/
+│   ├── HomePromoCarousel.tsx   # Banner promosi dan highlight film terpopuler
+│   ├── MovieCarousel.tsx       # Kartu film dengan pencarian judul dan filter
+│   ├── TrailerCarousel.tsx     # Cuplikan video trailer film dan modal pemutar
+│   ├── SeatMap.tsx             # Denah visual 50 kursi (A1-E10) dengan status interaktif
+│   └── ToastViewport.tsx       # Sistem notifikasi non-intrusif aksi sistem
+├── services/
+│   └── tixoGateway.ts          # Abstraksi gRPC-Web client, codec Protobuf, dan simulasi demo
+├── showtimes.ts                # Metadata jadwal, studio, aturan tarif, dan data film
+├── types.ts                    # Deklarasi tipe TypeScript antarmuka data
+├── styles.css                  # Desain tema, token warna, typography, dan animasi status
+├── App.tsx                     # State management utama, navigasi view, dan alur transaksi
+└── main.tsx                    # Entry point React DOM
+```
+
+### 7.2 Mode Operasi Dual-Engine (`VITE_TIXO_MODE`)
+Aplikasi web dirancang dengan dua mode eksekusi yang dapat dikonfigurasi melalui variabel environment:
+1. **Mode `grpc-web` (Mode Produksi / Integrasi):**
+   * Mengirimkan paket biner gRPC-Web melalui protokol HTTP/1.1 ke Envoy Proxy di port `8080`.
+   * Envoy menerjemahkan trafik ke format gRPC Native over HTTP/2 menuju Backend di port `50051`.
+   * Seluruh pembacaan status kursi, pemesanan, dan streaming tersinkron langsung ke MySQL InnoDB.
+2. **Mode `demo` (Mode Standalone / Fallback Offline):**
+   * Berjalan mandiri di browser tanpa ketergantungan pada backend server atau proxy.
+   * State kursi dikelola di memori browser dengan simulasi latensi jaringan (150-350 ms).
+   * Memudahkan pengujian tata letak UI, presentasi, dan responsivitas antarmuka tanpa menyalakan container database.
+
+### 7.3 Alur Pengguna (User Journey) & Fitur Antarmuka
+Aplikasi web memiliki dua tampilan utama (*views*):
+
+#### A. Tampilan Beranda (*Home View*)
+1. **Header & Navigation Bar:**
+   * Logo identitas brand TIXO (`tixo.`).
+   * Tombol *Sign In with Google* / Profil Pengguna aktif.
+   * Tombol pengalih tema (*Light / Dark Mode*) yang tersimpan di `localStorage`.
+   * Indikator status koneksi streaming gRPC real-time (`Kursi tersinkron`, `Menyambungkan ulang`, `Pratinjau lokal`).
+2. **Home Promo Carousel (`HomePromoCarousel.tsx`):**
+   * Menampilkan tayangan promosi khusus untuk rilis film unggulan dan studio premium (IMAX & Dolby Atmos).
+3. **Katalog & Pencarian Film (`MovieCarousel.tsx`):**
+   * Menampilkan 4 film aktif dengan detail poster, edisi, rating usia, genre, dan durasi.
+   * Kolom pencarian instan (*instant search filter*) untuk menyaring film berdasarkan judul.
+   * Tombol aksi "Pesan Tiket" yang langsung mengarahkan pengguna ke alur pemesanan film tersebut.
+4. **Trailer Showcase (`TrailerCarousel.tsx`):**
+   * Carousel video trailer resmi dengan pemutar video modal terintegrasi.
+
+#### B. Tampilan Pemesanan Kursi (*Booking View*)
+1. **Navigasi Kembali (*Breadcrumb Navigation*):**
+   * Tombol "Semua film" untuk kembali ke katalog beranda.
+   * Ringkasan banner film aktif (poster, judul, edisi studio, rating usia).
+2. **Pemilih Jadwal & Tarif Dinamis (*Schedule & Pricing Selector*):**
+   * Pilihan Studio (Studio 1 IMAX, Studio 2 Dolby Atmos, Studio 3 Premiere).
+   * Pilihan Tanggal Tayang berbentuk chip tanggal dengan label pintar (`HARI INI`, `BESOK`, atau nama hari).
+   * Pilihan Jam Tayang (09.00, 13.00, 16.00, 19.30, 22.00 WIB).
+   * **Badge Tarif Tiket Dinamis:** Menampilkan label harga otomatis sesuai tanggal yang dipilih:
+     * Senin s/d Jumat: **Rp 40.000 (Senin - Jumat)**
+     * Sabtu & Minggu: **Rp 45.000 (Sabtu & Minggu)**
+3. **Denah Kursi Bioskop Interaktif (`SeatMap.tsx`):**
+   * Visualisasi layar studio (*Cinema Screen Arc*) di bagian depan.
+   * Grid 50 kursi bioskop (5 baris A s/d E, 10 kolom 1 s/d 10).
+   * Kode Status Visual Kursi:
+     * **Tersedia (*Available*):** Abu-abu netral, dapat diklik untuk memilih.
+     * **Dipilih (*Selected*):** Warna aksen emas (*gold*), menandakan kursi dalam keranjang pemesanan saat ini.
+     * **Diproses (*Pending / In-Flight*):** Warna biru dengan animasi denyut (*pulsing*), menandakan transaksi sedang berlangsung ke server gRPC.
+     * **Terisi (*Booked*):** Warna gelap redup (*muted*), tidak dapat diklik.
+   * **Multi-Seat Selection:** Pengguna dapat mengeklik beberapa kursi sekaligus untuk dipesan bersamaan.
+4. **Panel Ringkasan Reservasi (*Booking Summary Panel*):**
+   * Rincian nomor kursi yang sedang dipilih (contoh: A3, A4, B5).
+   * Harga satuan tiket dan kalkulasi otomatis total bayar (`jumlah kursi * tarif`).
+   * Tombol "Pesan Kursi" yang memicu eksekusi batch booking atomic ke gRPC server.
+5. **Modal Autentikasi Google / Gmail:**
+   * Dialog login cepat 1-klik (*1-click quick login*) yang menyediakan profil preset pengembang (Azhar, Fajar, Fasha) untuk kemudahan demo pengujian.
+   * Opsi input manual untuk email Gmail dan nama pengguna kustom.
+   * Profil pengguna yang berhasil login akan disimpan di `localStorage` dan emailnya otomatis disematkan pada setiap transaksi pemesanan tiket untuk keperluan audit data.
+6. **Riwayat Transaksi & Pembatalan Tiket (*Recent Bookings & Cancellation*):**
+   * Menampilkan daftar tiket yang berhasil dipesan oleh pengguna pada sesi berjalan.
+   * Disertai nomor transaksi unik (UUID v4) dan tanggal.
+   * Tombol "Batal" yang memanggil RPC `BatalPesanan` untuk mengembalikan kursi ke status `AVAILABLE` secara instan.
+
+### 7.4 Komunikasi Real-Time gRPC-Web di Browser (`tixoGateway.ts`)
+1. **Inisialisasi Protobuf Runtime:**  
+   File `proto/tixo.proto` diimpor langsung sebagai modul teks mentah via Vite raw import (`?raw`), lalu diparsing oleh `protobufjs.parse()`. Hal ini menghilangkan kebutuhan kompilasi artefak TypeScript terpisah setiap kali skema protobuf diperbarui.
+2. **Koneksi Server Streaming (`PantauStatusKursi`):**  
+   Saat pengguna membuka denah kursi pada jadwal tertentu, gateway browser membuka koneksi server streaming gRPC-Web. Jika ada pemesan lain (atau proses konkuren lain) yang mengonfirmasi atau membatalkan kursi, backend menyiarkan pesan `StatusKursiUpdate`. Gateway browser menangkap event `data` dan memperbarui status kursi di layar tanpa perlu *refresh* halaman.
+3. **Penanganan Konflik Real-Time:**  
+   Jika pengguna A sedang menandai kursi B4 di layar, lalu tiba-tiba pengguna B mendahului menyelesaikan pembayaran untuk kursi B4 tersebut, broadcast streaming akan mengubah kursi B4 menjadi `BOOKED`. Sistem secara otomatis menghapus B4 dari daftar pilihan pengguna A dan memunculkan notifikasi toast: *"Kursi baru saja berubah: B4 sedang dipesan orang lain."*
+
+---
+
+## 8. Panduan Menjalankan Proyek Secara Cepat (Quickstart)
+
+### 8.1 Persiapan Awal
 Pastikan Node.js v18+ dan MySQL 8.0 (XAMPP atau Docker) sudah terpasang.
 
-### 7.2 Backend Setup & Inisialisasi Database
+### 8.2 Backend Setup & Inisialisasi Database
 ```bash
 cd backend
 
@@ -182,7 +282,7 @@ npm run db:setup
 npm run dev
 ```
 
-### 7.3 Uji Simulasi Race Condition Internal (Self-Verification)
+### 8.3 Uji Simulasi Race Condition Internal (Self-Verification)
 ```bash
 # Di terminal baru, jalankan simulasi 5 klien bersamaan menembak 1 kursi via Promise.all
 cd backend
@@ -190,7 +290,7 @@ npm run test:concurrency
 # Hasil yang valid: 1 SUKSES, 4 DITOLAK AMAN (0% Double Booking)
 ```
 
-### 7.4 Frontend Web Setup
+### 8.4 Frontend Web Setup
 ```bash
 cd frontend
 
@@ -204,7 +304,7 @@ npm run dev
 
 ---
 
-## 8. Panduan Khusus untuk Agen AI (AI IDE Rules)
+## 9. Panduan Khusus untuk Agen AI (AI IDE Rules)
 
 Setiap agen AI (Cursor, Windsurf, Copilot, Antigravity, Claude Code) wajib mematuhi ketentuan berikut:
 
@@ -212,3 +312,4 @@ Setiap agen AI (Cursor, Windsurf, Copilot, Antigravity, Claude Code) wajib memat
 2. **Jangan Mengubah Logika Locking:** Jangan pernah menyederhanakan `SELECT ... FOR UPDATE` menjadi kueri biasa.
 3. **Penyelarasan Skema Database:** Setiap perubahan pada skema SQL wajib diterapkan serempak pada `backend/src/config/schema.sql` dan `database/init.sql`.
 4. **Gaya Penulisan Kode:** Gunakan bahasa teknis formal, bersih, dan bebas dari simbol emoji/emoticon pada kode sumber, log konsol, maupun pesan commit git.
+
