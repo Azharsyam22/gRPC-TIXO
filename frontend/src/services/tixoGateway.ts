@@ -16,7 +16,10 @@ import { getPricingForDate, movieList, moviePresentationOverrides, showtimes, ty
 const mode = import.meta.env.VITE_TIXO_MODE === 'grpc-web' ? 'grpc-web' : 'demo'
 const host = (import.meta.env.VITE_TIXO_GRPC_WEB_URL || 'http://localhost:8080').replace(/\/$/, '')
 
-const root = protobuf.parse(schemaText).root
+// Keep the protobuf field names aligned with the shared proto contract.
+// The backend and wire types use snake_case (for example schedule_id), while
+// protobufjs defaults to converting those names to camelCase during parsing.
+const root = protobuf.parse(schemaText, new protobuf.Root(), { keepCase: true }).root
 const statusByNumber: Record<number, SeatStatus> = {
   0: 'AVAILABLE',
   1: 'PENDING',
