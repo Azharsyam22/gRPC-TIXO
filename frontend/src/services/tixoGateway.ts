@@ -2,12 +2,16 @@ import * as grpcWeb from 'grpc-web'
 import protobuf from 'protobufjs'
 import schemaText from '../../../proto/tixo.proto?raw'
 import type {
+  BatchBookingResponse,
   BookingResponse,
   CancellationResponse,
   ConnectionState,
+  SeatSnapshot,
   Seat,
   SeatStatus,
+  SignInResponse,
 } from '../types'
+import { getPricingForDate, movieList, moviePresentationOverrides, showtimes, type MovieItem, type Showtime } from '../showtimes'
 
 const mode = import.meta.env.VITE_TIXO_MODE === 'grpc-web' ? 'grpc-web' : 'demo'
 const host = (import.meta.env.VITE_TIXO_GRPC_WEB_URL || 'http://localhost:8080').replace(/\/$/, '')
@@ -24,6 +28,8 @@ type Codec<T> = {
   decode(bytes: Uint8Array): T
   constructor: new (...args: unknown[]) => T
 }
+
+type WireRequest = Record<string, unknown>
 
 function messageCodec<T>(name: string): Codec<T> {
   const type = root.lookupType(`tixo.${name}`)
@@ -71,6 +77,40 @@ interface WireSeat {
 interface WireSeatList {
   schedule_id?: string
   seats?: WireSeat[]
+  schedule?: WireSchedule
+}
+
+interface WireMovie {
+  id?: string
+  title?: string
+  edition?: string
+  genre?: string
+  duration_minutes?: number
+  poster_url?: string
+  synopsis?: string
+  rating?: string
+  default_studio?: string
+}
+
+interface WireMovieList {
+  movies?: WireMovie[]
+}
+
+interface WireSchedule {
+  id?: string
+  movie_id?: string
+  movie_name?: string
+  studio_name?: string
+  start_time?: string
+  date_formatted?: string
+  time_formatted?: string
+  base_price?: number
+  ticket_price?: number
+  is_weekend?: boolean
+}
+
+interface WireScheduleList {
+  schedules?: WireSchedule[]
 }
 
 interface WireBookingResponse {
@@ -93,22 +133,58 @@ interface WireCancellationResponse {
   seat?: WireSeat
 }
 
-const getSeatsMethod = descriptor<Record<string, string>, WireSeatList>(
+interface WireBatchBookingResponse {
+  success?: boolean
+  message?: string
+  seats?: WireSeat[]
+  total_price?: number
+  price_per_ticket?: number
+  transaction_id?: string
+}
+
+interface WireSignInResponse {
+  success?: boolean
+  message?: string
+  user?: { id?: string; email?: string; name?: string; avatar_url?: string }
+  session_token?: string
+}
+
+const getSeatsMethod = descriptor<WireRequest, WireSeatList>(
   '/tixo.TixoService/GetDaftarKursi',
   messageCodec('GetDaftarKursiRequest'),
   messageCodec('GetDaftarKursiResponse'),
 )
-const bookMethod = descriptor<Record<string, string>, WireBookingResponse>(
+const getMoviesMethod = descriptor<WireRequest, WireMovieList>(
+  '/tixo.TixoService/GetKatalogFilm',
+  messageCodec('GetKatalogFilmRequest'),
+  messageCodec('GetKatalogFilmResponse'),
+)
+const getSchedulesMethod = descriptor<WireRequest, WireScheduleList>(
+  '/tixo.TixoService/GetDaftarJadwal',
+  messageCodec('GetDaftarJadwalRequest'),
+  messageCodec('GetDaftarJadwalResponse'),
+)
+const bookMethod = descriptor<WireRequest, WireBookingResponse>(
   '/tixo.TixoService/PesanKursi',
   messageCodec('PesanKursiRequest'),
   messageCodec('PesanKursiResponse'),
 )
-const cancelMethod = descriptor<Record<string, string>, WireCancellationResponse>(
+const batchBookMethod = descriptor<WireRequest, WireBatchBookingResponse>(
+  '/tixo.TixoService/PesanBanyakKursi',
+  messageCodec('PesanBanyakKursiRequest'),
+  messageCodec('PesanBanyakKursiResponse'),
+)
+const cancelMethod = descriptor<WireRequest, WireCancellationResponse>(
   '/tixo.TixoService/BatalPesanan',
   messageCodec('BatalPesananRequest'),
   messageCodec('BatalPesananResponse'),
 )
-const streamMethod = descriptor<Record<string, string>, WireStreamUpdate>(
+const signInMethod = descriptor<WireRequest, WireSignInResponse>(
+  '/tixo.TixoService/SignInWithGoogle',
+  messageCodec('GoogleSignInRequest'),
+  messageCodec('GoogleSignInResponse'),
+)
+const streamMethod = descriptor<WireRequest, WireStreamUpdate>(
   '/tixo.TixoService/PantauStatusKursi',
   messageCodec('PantauStatusRequest'),
   messageCodec('StatusKursiUpdate'),
@@ -124,6 +200,39 @@ function toSeat(seat: WireSeat, fallbackScheduleId: string): Seat {
     seat_number: seat.seat_number || '',
     status: statusByNumber[Number(seat.status)] || 'PENDING',
     updated_at: seat.updated_at || new Date().toISOString(),
+  }
+}
+
+function toMovie(movie: WireMovie): MovieItem {
+  const mapped: MovieItem = {
+    id: movie.id || '',
+    title: movie.title || 'Film tanpa judul',
+    edition: movie.edition || 'Standard',
+    genre: movie.genre || '',
+    durationMinutes: Number(movie.duration_minutes) || undefined,
+    posterUrl: movie.poster_url || undefined,
+    synopsis: movie.synopsis || '',
+    rating: movie.rating || 'Belum tersedia',
+    studio: movie.default_studio || '',
+  }
+  return { ...mapped, ...moviePresentationOverrides[mapped.id] }
+}
+
+function toShowtime(schedule: WireSchedule): Showtime {
+  const startTime = schedule.start_time || ''
+  const date = startTime.slice(0, 10)
+  const rawTime = startTime.slice(11, 16)
+  const formattedTime = schedule.time_formatted || `${rawTime.slice(0, 2)}.${rawTime.slice(3, 5)} WIB`
+  return {
+    id: schedule.id || '',
+    movieId: schedule.movie_id || '',
+    movieName: schedule.movie_name || '',
+    studio: schedule.studio_name || '',
+    date,
+    time: formattedTime,
+    basePrice: Number(schedule.base_price) || 40000,
+    ticketPrice: Number(schedule.ticket_price) || 40000,
+    isWeekend: Boolean(schedule.is_weekend),
   }
 }
 
@@ -165,9 +274,19 @@ async function withNetworkRetry<T>(operation: () => Promise<T>): Promise<T> {
 
 export interface TixoGateway {
   readonly mode: 'demo' | 'grpc-web'
-  getSeats(scheduleId: string): Promise<Seat[]>
+  getMovies(): Promise<MovieItem[]>
+  getSchedules(movieId?: string): Promise<Showtime[]>
+  getSeats(scheduleId: string): Promise<SeatSnapshot>
   bookSeat(scheduleId: string, seatNumber: string, userId: string, transactionId: string): Promise<BookingResponse>
+  bookSeats(
+    scheduleId: string,
+    seatNumbers: string[],
+    userId: string,
+    userEmail: string,
+    transactionId: string,
+  ): Promise<BatchBookingResponse>
   cancelSeat(scheduleId: string, seatNumber: string, userId: string, transactionId: string): Promise<CancellationResponse>
+  signInWithGoogle(idToken: string, email: string, name: string): Promise<SignInResponse>
   subscribe(
     scheduleId: string,
     onUpdate: (seatNumber: string, status: SeatStatus) => void,
@@ -202,9 +321,41 @@ function createDemoGateway(): TixoGateway {
 
   return {
     mode: 'demo',
+    async getMovies() {
+      await pause(90)
+      return movieList.map((movie) => ({ ...movie }))
+    },
+    async getSchedules(movieId) {
+      await pause(90)
+      return showtimes
+        .filter((showtime) => !movieId || showtime.movieId === movieId)
+        .map((showtime) => {
+          const movie = movieList.find((item) => item.id === showtime.movieId)
+          const pricing = getPricingForDate(showtime.date)
+          return {
+            ...showtime,
+            studio: showtime.studio || movie?.studio || '',
+            basePrice: 40000,
+            ticketPrice: pricing.price,
+            isWeekend: pricing.isWeekend,
+          }
+        })
+    },
     async getSeats(scheduleId) {
       await pause(180)
-      return getDemoSeats(scheduleId).map((seat) => ({ ...seat }))
+      const showtime = showtimes.find((item) => item.id === scheduleId)
+      const movie = movieList.find((item) => item.id === showtime?.movieId)
+      const pricing = showtime ? getPricingForDate(showtime.date) : { price: 40000, isWeekend: false }
+      return {
+        seats: getDemoSeats(scheduleId).map((seat) => ({ ...seat })),
+        schedule: showtime ? {
+          ...showtime,
+          studio: showtime.studio || movie?.studio || '',
+          basePrice: 40000,
+          ticketPrice: pricing.price,
+          isWeekend: pricing.isWeekend,
+        } : undefined,
+      }
     },
     async bookSeat(scheduleId, seatNumber, _userId, transactionId) {
       await pause(250)
@@ -230,6 +381,47 @@ function createDemoGateway(): TixoGateway {
         transaction_id: transactionId,
       }
     },
+    async bookSeats(scheduleId, seatNumbers, _userId, _userEmail, transactionId) {
+      await pause(220)
+      const schedule = showtimes.find((item) => item.id === scheduleId)
+      const pricePerTicket = schedule ? getPricingForDate(schedule.date).price : 40000
+      const scheduleSeats = getDemoSeats(scheduleId)
+      const targets = [...new Set(seatNumbers)].map((number) => scheduleSeats.find((seat) => seat.seat_number === number))
+      const missingSeat = targets.some((seat) => !seat)
+      const unavailableSeats = targets.filter((seat): seat is Seat => Boolean(seat && seat.status !== 'AVAILABLE'))
+      if (missingSeat || unavailableSeats.length) {
+        return {
+          success: false,
+          message: unavailableSeats.length
+            ? `Kursi ${unavailableSeats.map((seat) => seat.seat_number).join(', ')} tidak lagi tersedia.`
+            : 'Satu atau beberapa kursi tidak ditemukan.',
+          seats: targets.filter((seat): seat is Seat => Boolean(seat)).map((seat) => ({ ...seat })),
+          total_price: 0,
+          price_per_ticket: pricePerTicket,
+          transaction_id: transactionId,
+        }
+      }
+
+      const bookedSeats = targets.filter((seat): seat is Seat => Boolean(seat))
+      bookedSeats.forEach((seat) => {
+        seat.status = 'PENDING'
+        emit(scheduleId, seat.seat_number, seat.status)
+      })
+      await pause(450)
+      bookedSeats.forEach((seat) => {
+        seat.status = 'BOOKED'
+        seat.updated_at = new Date().toISOString()
+        emit(scheduleId, seat.seat_number, seat.status)
+      })
+      return {
+        success: true,
+        message: `Berhasil memesan ${bookedSeats.length} kursi.`,
+        seats: bookedSeats.map((seat) => ({ ...seat })),
+        total_price: bookedSeats.length * pricePerTicket,
+        price_per_ticket: pricePerTicket,
+        transaction_id: transactionId,
+      }
+    },
     async cancelSeat(scheduleId, seatNumber, _userId, transactionId) {
       await pause(250)
       const seat = getDemoSeats(scheduleId).find((item) => item.seat_number === seatNumber)
@@ -249,6 +441,20 @@ function createDemoGateway(): TixoGateway {
       onConnection('demo')
       return () => scheduleListeners.delete(onUpdate)
     },
+    async signInWithGoogle(_idToken, email, name) {
+      await pause(120)
+      if (!email || !name) return { success: false, message: 'Email dan nama harus diisi.' }
+      return {
+        success: true,
+        message: 'Profil pratinjau lokal siap digunakan.',
+        user: {
+          id: `usr-demo-${createId().slice(0, 8)}`,
+          email,
+          name,
+          avatar_url: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name)}`,
+        },
+      }
+    },
   }
 }
 
@@ -257,13 +463,32 @@ function createGrpcWebGateway(): TixoGateway {
 
   return {
     mode: 'grpc-web',
+    async getMovies() {
+      const response = await withNetworkRetry(() => unary(
+        '/tixo.TixoService/GetKatalogFilm',
+        getMoviesMethod,
+        {},
+      ))
+      return (response.movies || []).map(toMovie).filter((movie) => movie.id)
+    },
+    async getSchedules(movieId) {
+      const response = await withNetworkRetry(() => unary(
+        '/tixo.TixoService/GetDaftarJadwal',
+        getSchedulesMethod,
+        { movie_id: movieId || '' },
+      ))
+      return (response.schedules || []).map(toShowtime).filter((schedule) => schedule.id && schedule.movieId)
+    },
     async getSeats(scheduleId) {
       const response = await withNetworkRetry(() => unary(
         '/tixo.TixoService/GetDaftarKursi',
         getSeatsMethod,
         { schedule_id: scheduleId },
       ))
-      return (response.seats || []).map((seat) => toSeat(seat, scheduleId))
+      return {
+        seats: (response.seats || []).map((seat) => toSeat(seat, scheduleId)),
+        schedule: response.schedule ? toShowtime(response.schedule) : undefined,
+      }
     },
     async bookSeat(scheduleId, seatNumber, userId, transactionId) {
       const response = await withNetworkRetry(() => unary(
@@ -278,6 +503,27 @@ function createGrpcWebGateway(): TixoGateway {
         transaction_id: response.transaction_id || transactionId,
       }
     },
+    async bookSeats(scheduleId, seatNumbers, userId, userEmail, transactionId) {
+      const response = await withNetworkRetry(() => unary(
+        '/tixo.TixoService/PesanBanyakKursi',
+        batchBookMethod,
+        {
+          schedule_id: scheduleId,
+          seat_numbers: seatNumbers,
+          user_id: userId,
+          user_email: userEmail,
+          transaction_id: transactionId,
+        },
+      ))
+      return {
+        success: Boolean(response.success),
+        message: response.message || 'Server tidak memberikan pesan.',
+        seats: (response.seats || []).map((seat) => toSeat(seat, scheduleId)),
+        total_price: Number(response.total_price) || 0,
+        price_per_ticket: Number(response.price_per_ticket) || 0,
+        transaction_id: response.transaction_id || transactionId,
+      }
+    },
     async cancelSeat(scheduleId, seatNumber, userId, transactionId) {
       const response = await withNetworkRetry(() => unary(
         '/tixo.TixoService/BatalPesanan',
@@ -288,6 +534,24 @@ function createGrpcWebGateway(): TixoGateway {
         success: Boolean(response.success),
         message: response.message || 'Server tidak memberikan pesan.',
         seat: response.seat?.seat_number ? toSeat(response.seat, scheduleId) : undefined,
+      }
+    },
+    async signInWithGoogle(idToken, email, name) {
+      const response = await withNetworkRetry(() => unary(
+        '/tixo.TixoService/SignInWithGoogle',
+        signInMethod,
+        { id_token: idToken, email, name, avatar_url: '' },
+      ))
+      return {
+        success: Boolean(response.success),
+        message: response.message || 'Server tidak memberikan pesan.',
+        user: response.user?.id && response.user.email && response.user.name ? {
+          id: response.user.id,
+          email: response.user.email,
+          name: response.user.name,
+          avatar_url: response.user.avatar_url || undefined,
+        } : undefined,
+        session_token: response.session_token || undefined,
       }
     },
     subscribe(scheduleId, onUpdate, onConnection) {

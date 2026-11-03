@@ -9,7 +9,7 @@ TIXO should feel like a considered cinema ticket desk. Warm paper and dark ink g
 ## Tokens
 
 - Paper: `#f1eee7`; raised paper: `#fbfaf6`; ink: `#292620`.
-- Booking accent: `#a43c35`.
+- Booking accent: maroon (`#80343b`), with a deeper maroon for hover and emphasis.
 - Available: green; processing: amber; booked: muted red. Status always includes a text label for assistive technology.
 - Selected-seat chips use a perforated ticket edge as the interface motif.
 
@@ -17,7 +17,7 @@ TIXO should feel like a considered cinema ticket desk. Warm paper and dark ink g
 
 The 5×10 seat map is the main focus. The order summary sits beside it on wide screens and below it on phones. Motion only marks direct feedback: a seat press, a short status pulse while reconnecting, and the booking spinner. Reduced-motion preferences turn those effects off.
 
-The discovery header and hero keep the booking task in the same editorial frame. A CSS drawn space horizon gives the featured film a poster scale without adding a copied or generated poster asset. Date and showtime filters reflect seeded schedules only; the venue field stays singular because the seed contains one studio.
+The home view starts with a full-width, automatically advancing film and promotion banner, followed by a compact Now Showing carousel and a raised-paper trailer shelf. Film cards use equal vertical poster frames with rounded corners. Trailer controls use the same maroon accent as booking actions; verified trailers play in an in-page YouTube player. Promotional copy is explicitly marked as a local simulation and never changes checkout pricing. Movie cards show their poster, edition, rating, synopsis, and a direct route to the schedule. A dark-ink footer groups working page navigation and the current service state. The booking view follows the selected film with studio, date, showtime, and seat controls. The local demo offers three studios; backend studio choices follow the schedule records returned by the server.
 
 ## Content boundary
 

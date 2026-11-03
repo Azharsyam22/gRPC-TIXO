@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { SeatMap } from './components/SeatMap'
 import { ToastViewport } from './components/ToastViewport'
+import { HomePromoCarousel } from './components/HomePromoCarousel'
+import { MovieCarousel } from './components/MovieCarousel'
+import { TrailerCarousel } from './components/TrailerCarousel'
 import { createId, tixoGateway, userId } from './services/tixoGateway'
 import { defaultShowtime, getPricingForDate, movieList, showtimes, type MovieItem } from './showtimes'
 import type { ConnectionState, RecentBooking, Seat, SeatStatus, ToastMessage, UserProfile } from './types'
 
 type Theme = 'light' | 'dark'
+type AppView = 'home' | 'booking'
 
 function formatShowDay(dateValue: string) {
   const date = new Date(`${dateValue}T12:00:00`)
@@ -55,14 +59,21 @@ function shortId(value: string) {
 }
 
 function App() {
+  const [currentView, setCurrentView] = useState<AppView>('home')
   const [seats, setSeats] = useState<Seat[]>([])
-  const [activeMovie, setActiveMovie] = useState<MovieItem>(movieList[0]!)
+  const [movies, setMovies] = useState<MovieItem[]>(tixoGateway.mode === 'demo' ? movieList : [])
+  const [availableShowtimes, setAvailableShowtimes] = useState(() => tixoGateway.mode === 'demo' ? showtimes : [])
+  const [isCatalogLoading, setIsCatalogLoading] = useState(tixoGateway.mode === 'grpc-web')
+  const [catalogError, setCatalogError] = useState('')
+  const [activeMovie, setActiveMovie] = useState<MovieItem | null>(tixoGateway.mode === 'demo' ? movieList[0]! : null)
   const [activeShowtime, setActiveShowtime] = useState(defaultShowtime)
+  const [activeStudio, setActiveStudio] = useState(defaultShowtime.studio || movieList[0]!.studio)
   const [activeDate, setActiveDate] = useState(defaultShowtime.date)
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(readCurrentUser)
   const [showLoginModal, setShowLoginModal] = useState(false)
   const [gmailInput, setGmailInput] = useState('')
   const [nameInput, setNameInput] = useState('')
+  const [isSigningIn, setIsSigningIn] = useState(false)
   const [theme, setTheme] = useState<Theme>(readTheme)
   const [searchQuery, setSearchQuery] = useState('')
   const [selected, setSelected] = useState<string[]>([])
@@ -78,10 +89,49 @@ function App() {
   const selectedRef = useRef<string[]>([])
   const loadRequest = useRef(0)
 
+  const loadCatalog = useCallback(async () => {
+    if (tixoGateway.mode === 'demo') return
+    setIsCatalogLoading(true)
+    setCatalogError('')
+    try {
+      const [movieResult, scheduleResult] = await Promise.all([
+        tixoGateway.getMovies(),
+        tixoGateway.getSchedules(),
+      ])
+      if (!movieResult.length || !scheduleResult.length) {
+        throw new Error('Katalog film atau jadwal belum berisi data.')
+      }
+      const initialMovie = movieResult.find((movie) => movie.id === 'mov-01') || movieResult[0]!
+      const initialShowtime = scheduleResult.find((schedule) => schedule.id === 'sch-01')
+        || scheduleResult.find((schedule) => schedule.movieId === initialMovie.id)
+        || scheduleResult[0]!
+      setMovies(movieResult)
+      setAvailableShowtimes(scheduleResult)
+      setActiveMovie(initialMovie)
+      setActiveShowtime(initialShowtime)
+      setActiveStudio(initialShowtime.studio || initialMovie.studio)
+      setActiveDate(initialShowtime.date)
+    } catch (error) {
+      setCatalogError(error instanceof Error ? error.message : 'Katalog belum bisa dimuat dari server.')
+    } finally {
+      setIsCatalogLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { void loadCatalog() }, [loadCatalog])
+
   // Filter jadwal berdasarkan film yang sedang aktif
   const movieShowtimes = useMemo(
-    () => showtimes.filter((s) => s.movieId === activeMovie.id),
-    [activeMovie.id],
+    () => availableShowtimes.filter((s) => s.movieId === activeMovie?.id && (s.studio || activeMovie?.studio) === activeStudio),
+    [activeMovie?.id, activeMovie?.studio, activeStudio, availableShowtimes],
+  )
+
+  const availableStudios = useMemo(
+    () => [...new Set(availableShowtimes
+      .filter((showtime) => showtime.movieId === activeMovie?.id)
+      .map((showtime) => showtime.studio || activeMovie?.studio || '')
+      .filter(Boolean))],
+    [activeMovie?.id, activeMovie?.studio, availableShowtimes],
   )
 
   const availableDays = useMemo(
@@ -94,11 +144,17 @@ function App() {
     [movieShowtimes, activeDate],
   )
 
-  // Hitung harga dinamis: Hari biasa Rp 40.000 / Weekend Rp 45.000
-  const pricing = useMemo(
-    () => getPricingForDate(activeShowtime.date),
-    [activeShowtime.date],
-  )
+  const visibleMovies = useMemo(() => {
+    const query = searchQuery.trim().toLocaleLowerCase('id-ID')
+    if (!query) return movies
+    return movies.filter((movie) => `${movie.title} ${movie.edition}`.toLocaleLowerCase('id-ID').includes(query))
+  }, [movies, searchQuery])
+
+  const fallbackPricing = getPricingForDate(activeShowtime.date)
+  const pricing = {
+    price: activeShowtime.ticketPrice ?? fallbackPricing.price,
+    isWeekend: activeShowtime.isWeekend ?? fallbackPricing.isWeekend,
+  }
 
   const pricePerTicket = pricing.price
   const totalPrice = selected.length * pricePerTicket
@@ -150,8 +206,12 @@ function App() {
     try {
       const result = await tixoGateway.getSeats(scheduleId)
       if (request !== loadRequest.current) return
-      setSeats(result)
-      latestSeats.current = result
+      setSeats(result.seats)
+      latestSeats.current = result.seats
+      if (result.schedule) {
+        setAvailableShowtimes((current) => current.map((item) => item.id === result.schedule?.id ? { ...item, ...result.schedule } : item))
+        setActiveShowtime((current) => current.id === result.schedule?.id ? { ...current, ...result.schedule } : current)
+      }
       setSelection(() => [])
     } catch (error) {
       if (request !== loadRequest.current) return
@@ -187,21 +247,30 @@ function App() {
   }
 
   function chooseMovie(movie: MovieItem) {
-    if (isSubmitting || isLoading || movie.id === activeMovie.id) return
+    if (isSubmitting) return
+    const bookingSchedule = availableShowtimes.find((schedule) => schedule.movieId === movie.id && (schedule.studio || movie.studio) === movie.studio)
+      || availableShowtimes.find((schedule) => schedule.movieId === movie.id)
+    if (!bookingSchedule) {
+      pushToast('Jadwal belum tersedia', `Jadwal ${movie.title} belum bisa dipilih.`, 'info')
+      return
+    }
+
     setActiveMovie(movie)
-    const firstSchedule = showtimes.find((s) => s.movieId === movie.id)
-    if (firstSchedule) {
-      setActiveDate(firstSchedule.date)
+    setCurrentView('booking')
+    if (bookingSchedule.id !== activeShowtime.id) {
+      setActiveStudio(bookingSchedule.studio || movie.studio)
+      setActiveDate(bookingSchedule.date)
       selectedRef.current = []
       setSelected([])
       setSeats([])
       latestSeats.current = []
-      setActiveShowtime(firstSchedule)
+      setActiveShowtime(bookingSchedule)
     }
   }
 
-  function chooseShowtime(showtime: (typeof showtimes)[0]) {
+  function chooseShowtime(showtime: (typeof availableShowtimes)[number]) {
     if (isSubmitting || isLoading || showtime.id === activeShowtime.id) return
+    setActiveStudio(showtime.studio || activeMovie?.studio || '')
     setActiveDate(showtime.date)
     selectedRef.current = []
     setSelected([])
@@ -210,27 +279,67 @@ function App() {
     setActiveShowtime(showtime)
   }
 
+  function chooseStudio(studio: string) {
+    const movie = activeMovie
+    if (!movie || isSubmitting || isLoading || studio === activeStudio) return
+    const studioShowtimes = availableShowtimes.filter((showtime) => showtime.movieId === movie.id && (showtime.studio || movie.studio) === studio)
+    const nextShowtime = studioShowtimes.find((showtime) => showtime.date === activeDate) || studioShowtimes[0]
+    if (!nextShowtime) return
+    setActiveStudio(studio)
+    setActiveDate(nextShowtime.date)
+    selectedRef.current = []
+    setSelected([])
+    setSeats([])
+    latestSeats.current = []
+    setActiveShowtime(nextShowtime)
+  }
+
   function chooseDate(date: string) {
     if (isSubmitting || isLoading || date === activeDate) return
     const nextShowtime = movieShowtimes.find((showtime) => showtime.date === date)
     if (nextShowtime) chooseShowtime(nextShowtime)
   }
 
-  function handleLoginSubmit(email: string, name: string) {
+  if (isCatalogLoading) {
+    return <div className="site-shell min-h-dvh"><div className="loading-state" role="status"><span className="loading-ring" />Mengambil katalog film dan jadwal dari server...</div></div>
+  }
+
+  if (catalogError || !activeMovie) {
+    return (
+      <div className="site-shell min-h-dvh">
+        <section className="load-state" role="alert">
+          <span className="load-state-label">KATALOG BELUM TERSEDIA</span>
+          <h2>Film dan jadwal belum bisa dimuat.</h2>
+          <p>{catalogError || 'Server belum mengirim data film dan jadwal.'}</p>
+          <button type="button" className="button button-dark" onClick={() => void loadCatalog()}>Coba lagi</button>
+        </section>
+      </div>
+    )
+  }
+
+  async function handleLoginSubmit(email: string, name: string) {
     if (!email || !name) {
       pushToast('Data tidak lengkap', 'Silakan masukkan email Gmail dan nama.', 'error')
       return
     }
-    const user: UserProfile = {
-      id: `usr-${createId().slice(0, 8)}`,
-      email,
-      name,
-      avatar_url: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(name)}`,
+    setIsSigningIn(true)
+    try {
+      const response = await tixoGateway.signInWithGoogle('', email, name)
+      if (!response.success || !response.user) {
+        pushToast('Login belum berhasil', response.message, 'error')
+        return
+      }
+      const user: UserProfile = response.user
+      setCurrentUser(user)
+      try { window.localStorage.setItem('tixo-user', JSON.stringify(user)) } catch { /* profile remains in memory */ }
+      setShowLoginModal(false)
+      pushToast('Profil siap digunakan', `Selamat datang, ${user.name}.`, 'success')
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Server login belum dapat dihubungi.'
+      pushToast('Login belum berhasil', detail, 'error')
+    } finally {
+      setIsSigningIn(false)
     }
-    setCurrentUser(user)
-    try { window.localStorage.setItem('tixo-user', JSON.stringify(user)) } catch { /* ignore */ }
-    setShowLoginModal(false)
-    pushToast('Berhasil Masuk', `Selamat datang di TIXO, ${name}!`, 'success')
   }
 
   function handleLogout() {
@@ -247,52 +356,48 @@ function App() {
     targets.forEach((seat) => updateSeat({ ...seat, status: 'PENDING' }))
 
     const buyerId = currentUser ? currentUser.id : userId
+    const transactionId = createId()
+    try {
+      const response = await tixoGateway.bookSeats(
+        activeShowtime.id,
+        targets.map((seat) => seat.seat_number),
+        buyerId,
+        currentUser?.email || '',
+        transactionId,
+      )
 
-    const responses = await Promise.all(targets.map(async (seat) => {
-      const transactionId = createId()
-      try {
-        const response = await tixoGateway.bookSeat(seat.schedule_id, seat.seat_number, buyerId, transactionId)
-        if (response.seat) updateSeat(response.seat)
-        else if (!response.success) updateSeat({ ...seat, status: 'AVAILABLE' })
-        return { seat, ok: true as const, response }
-      } catch (error) {
-        return { seat, ok: false as const, error }
+      if (!response.success) {
+        response.seats.forEach(updateSeat)
+        await loadSeats(activeShowtime.id)
+        setSelection(() => [])
+        pushToast('Kursi tidak dapat dipesan', response.message || 'Periksa kembali ketersediaan kursi.', 'error')
+        return
       }
-    }))
 
-    const booked: RecentBooking[] = []
-    const rejected: string[] = []
-    const rejectedSeats: string[] = []
-    const uncertain = responses.filter((result) => !result.ok)
-    for (const result of responses) {
-      if (!result.ok) continue
-      if (!result.response.success) {
-        rejected.push(result.response.message)
-        rejectedSeats.push(result.seat.seat_number)
-        continue
-      }
-      const seat = result.response.seat || { ...result.seat, status: 'BOOKED' as const }
-      updateSeat(seat)
-      booked.push({ seat, transaction_id: result.response.transaction_id, price: pricePerTicket })
-    }
+      const seatsByNumber = new Map(response.seats.map((seat) => [seat.seat_number, seat]))
+      const booked = targets.map((target) => {
+        const seat = seatsByNumber.get(target.seat_number) || { ...target, status: 'BOOKED' as const }
+        updateSeat(seat)
+        return {
+          seat,
+          // The backend creates a distinct transaction row per seat using this suffix.
+          transaction_id: `${response.transaction_id}-${seat.seat_number}`,
+          price: response.price_per_ticket || pricePerTicket,
+        }
+      })
 
-    if (booked.length) {
       setRecentBookings((current) => [...booked, ...current.filter((item) => !booked.some((next) => next.seat.schedule_id === item.seat.schedule_id && next.seat.seat_number === item.seat.seat_number))])
-      setSelection((current) => current.filter((number) => !booked.some((item) => item.seat.seat_number === number)))
+      setSelection(() => [])
+      const finalTotal = response.total_price || booked.length * pricePerTicket
+      pushToast('Pesanan berhasil', `${booked.map((item) => item.seat.seat_number).join(', ')} dipesan. Total Rp ${finalTotal.toLocaleString('id-ID')}.`, 'success')
+    } catch (error) {
+      await loadSeats(activeShowtime.id)
+      const detail = error instanceof Error ? error.message : 'Periksa koneksi server lalu muat ulang denah.'
+      pushToast('Pesanan belum terkonfirmasi', detail, 'error')
+    } finally {
+      targets.forEach((seat) => inFlightSeats.current.delete(seat.seat_number))
+      setIsSubmitting(false)
     }
-    if (rejected.length) {
-      setSelection((current) => current.filter((number) => !rejectedSeats.includes(number)))
-      pushToast('Kursi tidak dapat dipesan', rejected[0] || 'Kursi sudah tidak tersedia.', 'error')
-    }
-    if (uncertain.length) {
-      await loadSeats()
-      pushToast('Belum ada kepastian dari server', 'Denah kursi diperbarui. Periksa status kursi sebelum mencoba lagi.', 'error')
-    }
-    if (booked.length && !rejected.length && !uncertain.length) {
-      pushToast('Pesanan berhasil', `${booked.map((item) => item.seat.seat_number).join(', ')} berhasil dipesan (Total: Rp ${totalPrice.toLocaleString('id-ID')}).`, 'success')
-    }
-    targets.forEach((seat) => inFlightSeats.current.delete(seat.seat_number))
-    setIsSubmitting(false)
   }
 
   async function cancelBooking(booking: RecentBooking) {
@@ -318,14 +423,20 @@ function App() {
     }
   }
 
+  function navigateHome(anchor: string) {
+    setCurrentView('home')
+    window.setTimeout(() => document.getElementById(anchor)?.scrollIntoView({ behavior: 'smooth' }), 60)
+  }
+
+  function navigateBooking() {
+    setCurrentView('booking')
+    window.setTimeout(() => document.getElementById('schedule-filters')?.scrollIntoView({ behavior: 'smooth' }), 60)
+  }
+
   return (
     <div className="site-shell min-h-dvh">
       <header className="masthead">
-        <a className="wordmark" href="#main" aria-label="TIXO, ke pemilihan kursi"><span>tixo</span><i aria-hidden="true">.</i></a>
-        <button className="location-button" type="button" onClick={() => pushToast('Lokasi studio', `${activeMovie.studio} aktif untuk ${activeMovie.title}.`, 'info')} aria-label={`Lokasi bioskop: ${activeMovie.studio}`}>
-          <span className="location-pin" aria-hidden="true">⌖</span><span><small>BIOSKOP</small><strong>{activeMovie.studio}</strong></span><span className="location-chevron" aria-hidden="true">⌄</span>
-        </button>
-        <label className="movie-search"><span aria-hidden="true" className="search-icon">⌕</span><input type="search" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Cari film..." aria-label="Cari film" />{searchQuery && <button type="button" onClick={() => setSearchQuery('')} aria-label="Hapus pencarian">×</button>}</label>
+        <a className="wordmark" href="#main" onClick={(event) => { event.preventDefault(); setCurrentView('home') }} aria-label="TIXO, ke beranda"><span>tixo</span><i aria-hidden="true">.</i></a>
         <div className="masthead-tools">
           {currentUser ? (
             <div className="flex items-center gap-2 bg-[var(--paper-light)] border border-[var(--line)] px-2.5 py-1 rounded-full text-xs">
@@ -352,65 +463,44 @@ function App() {
       </header>
 
       <main id="main" className="page-frame">
-        {/* Katalog Pemilihan Film */}
-        <section className="mb-6 pt-3" aria-label="Pilih Film">
-          <p className="text-[10px] tracking-wider font-bold text-[var(--ink-soft)] uppercase mb-2">PILIH FILM YANG INGIN DITONTON</p>
-          <div className="flex flex-wrap gap-2">
-            {movieList.map((m) => {
-              const isSelected = m.id === activeMovie.id
-              return (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => chooseMovie(m)}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-medium border transition-all ${
-                    isSelected
-                      ? 'bg-[var(--ink)] text-[var(--paper-light)] border-[var(--ink)] shadow-sm'
-                      : 'bg-[var(--paper-light)] text-[var(--ink)] border-[var(--line)] hover:border-[var(--ink-soft)]'
-                  }`}
-                >
-                  <strong className="block">{m.title}</strong>
-                  <span className="text-[10px] opacity-75">{m.edition}</span>
-                </button>
-              )
-            })}
+        {currentView === 'home' && <HomePromoCarousel movies={movies} />}
+        <section id="now-showing" className={`home-catalog${currentView === 'home' ? '' : ' view-hidden'}`} aria-labelledby="home-title">
+          <div className="home-heading">
+            <div>
+              <p className="section-index">NOW SHOWING IN CINEMAS</p>
+              <h1 id="home-title">Pilih film untuk ditonton</h1>
+              <p>Pilih film untuk melihat jadwal, studio, dan denah kursi.</p>
+            </div>
+            <div className="home-heading-tools">
+              <label className="movie-search catalog-search"><span aria-hidden="true" className="search-icon">⌕</span><input type="search" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Cari film..." aria-label="Cari film" />{searchQuery && <button type="button" onClick={() => setSearchQuery('')} aria-label="Hapus pencarian">×</button>}</label>
+              <span className="home-count">{visibleMovies.length} film</span>
+            </div>
+          </div>
+          {searchQuery && (
+            <div className="search-feedback" role="status">
+              <span>Pencarian: "{searchQuery}"</span>
+              <button type="button" onClick={() => setSearchQuery('')}>Hapus</button>
+            </div>
+          )}
+          <MovieCarousel movies={visibleMovies} schedules={availableShowtimes} disabled={isSubmitting} onBook={chooseMovie} />
+        </section>
+        {currentView === 'home' && <TrailerCarousel movies={visibleMovies} />}
+
+        <section className={`booking-intro${currentView === 'booking' ? '' : ' view-hidden'}`} aria-label={`Pemesanan ${activeMovie.title}`}>
+          <button className="back-to-catalog" type="button" onClick={() => setCurrentView('home')}>
+            <span aria-hidden="true">←</span> Semua film
+          </button>
+          <div className="booking-film-summary">
+            <img src={activeMovie.posterUrl} alt="" />
+            <div>
+              <p className="section-index">PILIH JADWAL & KURSI</p>
+              <h1>{activeMovie.title}</h1>
+              <p>{activeMovie.edition} <i /> Rating {activeMovie.rating}</p>
+            </div>
           </div>
         </section>
 
-        {searchQuery && (
-          <div className="search-feedback" role="status">
-            <span>Pencarian: "{searchQuery}"</span>
-            <button type="button" onClick={() => setSearchQuery('')}>Hapus</button>
-          </div>
-        )}
-
-        <section className="feature-hero" id="featured-film" aria-labelledby="film-title">
-          <div className="feature-copy">
-            <p className="film-kicker">SEDANG TAYANG <span>·</span> {activeMovie.studio}</p>
-            <h1 id="film-title">{activeMovie.title}<span>:</span></h1>
-            <div className="feature-tags">
-              <span>{activeMovie.edition}</span>
-              <i />
-              <span>{activeMovie.genre}</span>
-              <i />
-              <span>Rating {activeMovie.rating}</span>
-            </div>
-            <p className="film-synopsis">{activeMovie.synopsis}</p>
-            <div className="mt-4 flex items-center gap-3">
-              <span className={`px-2.5 py-1 rounded-md text-xs font-bold uppercase tracking-wider ${pricing.isWeekend ? 'bg-amber-100 text-amber-900 border border-amber-300' : 'bg-emerald-100 text-emerald-900 border border-emerald-300'}`}>
-                {pricing.isWeekend ? 'Akhir Pekan: Rp 45.000' : 'Hari Biasa: Rp 40.000'}
-              </span>
-              <a className="button button-red hero-cta !mt-0 !w-auto" href="#schedule-filters">Pilih Waktu & Kursi</a>
-            </div>
-          </div>
-          <div className="hero-art" role="img" aria-label={`Poster ${activeMovie.title}`}>
-            <span className="art-coordinate">{activeMovie.studio}</span>
-            <span className="art-orbit" />
-            <span className="art-horizon" />
-            <span className="art-title">{activeMovie.title.slice(0, 12).toUpperCase()}</span>
-            <span className="art-edition">{activeMovie.edition}</span>
-          </div>
-        </section>
+        <div className={currentView === 'booking' ? '' : 'view-hidden'}>
 
         <section className="showtime-picker" id="schedule-filters" aria-labelledby="showtime-title">
           <div className="showtime-heading">
@@ -430,7 +520,10 @@ function App() {
               {availableDays.map((date) => {
                 const label = formatShowDay(date)
                 const isSelected = date === activeDate
-                const datePrice = getPricingForDate(date)
+                const dateSchedule = movieShowtimes.find((showtime) => showtime.date === date)
+                const datePrice = dateSchedule
+                  ? { price: dateSchedule.ticketPrice ?? getPricingForDate(date).price, isWeekend: dateSchedule.isWeekend ?? getPricingForDate(date).isWeekend }
+                  : getPricingForDate(date)
                 return (
                   <button
                     key={date}
@@ -448,8 +541,21 @@ function App() {
               })}
             </div>
             <div className="venue-filter">
-              <small>STUDIO PILIHAN</small>
-              <strong>{activeMovie.studio}</strong>
+              <small>PILIH STUDIO</small>
+              <div className="studio-options" role="group" aria-label="Pilih studio">
+                {availableStudios.map((studio) => (
+                  <button
+                    key={studio}
+                    type="button"
+                    className={`studio-option${activeStudio === studio ? ' is-active' : ''}`}
+                    aria-pressed={activeStudio === studio}
+                    disabled={isSubmitting || isLoading}
+                    onClick={() => chooseStudio(studio)}
+                  >
+                    {studio}
+                  </button>
+                ))}
+              </div>
               <span>· {dayShowtimes.length} jam tayang tersedia</span>
             </div>
           </div>
@@ -490,7 +596,7 @@ function App() {
                       {pricing.isWeekend ? 'Tarif Weekend: Rp 45.000 / tiket' : 'Tarif Weekday: Rp 40.000 / tiket'}
                     </span>
                   </div>
-                  <SeatMap seats={seats} selected={selected} onToggle={toggleSeat} />
+                <SeatMap seats={seats} selected={selected} studioName={activeShowtime.studio || activeMovie.studio} onToggle={toggleSeat} />
                 </>
               )}
             </div>
@@ -500,7 +606,7 @@ function App() {
               <h2 id="order-title">Kursi Pilihan</h2>
               <div className="checkout-film">
                 <strong>{activeMovie.title}</strong>
-                <span>{activeMovie.studio} · {activeMovie.edition}</span>
+                <span>{activeShowtime.studio || activeMovie.studio} · {activeMovie.edition}</span>
               </div>
               {chosenSeats.length ? (
                 <ul className="chosen-list" aria-label="Daftar kursi pilihan">
@@ -589,11 +695,38 @@ function App() {
           </section>
         )}
 
-        <footer className="page-footer">
-          <span>TIXO <i>·</i> {activeMovie.title} ({activeMovie.studio})</span>
-          <span>{tixoGateway.mode === 'demo' ? 'Mode pratinjau lokal' : `Jadwal ${activeShowtime.id}`}</span>
-        </footer>
+        </div>
       </main>
+
+      <footer className="site-footer" id="site-footer">
+        <div className="site-footer-main">
+          <div className="footer-about-block">
+            <a className="footer-brand" href="#main" onClick={(event) => { event.preventDefault(); navigateHome('main') }} aria-label="TIXO, kembali ke beranda">tixo<span>.</span></a>
+            <p>Pilih film, temukan jadwal, lalu tentukan kursi untuk pengalaman menontonmu.</p>
+          </div>
+          <nav className="footer-links" aria-label="Jelajahi TIXO">
+            <h2>Jelajahi</h2>
+            <a href="#now-showing" onClick={(event) => { event.preventDefault(); navigateHome('now-showing') }}>Now Showing</a>
+            <a href="#video-trailers" onClick={(event) => { event.preventDefault(); navigateHome('video-trailers') }}>Video &amp; Trailers</a>
+            <a href="#schedule-filters" onClick={(event) => { event.preventDefault(); navigateBooking() }}>Jadwal &amp; kursi</a>
+          </nav>
+          <div className="footer-links">
+            <h2>Tentang pemesanan</h2>
+            <a href="#now-showing" onClick={(event) => { event.preventDefault(); navigateHome('now-showing') }}>Pilih film</a>
+            <a href="#schedule-filters" onClick={(event) => { event.preventDefault(); navigateBooking() }}>Pilih studio dan waktu</a>
+            <span>Pilih kursi yang tersedia</span>
+          </div>
+          <div className="footer-status">
+            <h2>Status layanan</h2>
+            <p><i aria-hidden="true" />{connectionCopy(connection)}</p>
+            <span>{tixoGateway.mode === 'demo' ? 'Pratinjau lokal tidak menyimpan pesanan ke database.' : 'Jadwal dan status kursi mengikuti server.'}</span>
+          </div>
+        </div>
+        <div className="site-footer-bottom">
+          <span>© 2026 TIXO</span>
+          <span>Film pilihanmu, malam ini.</span>
+        </div>
+      </footer>
 
       {/* Modal Sign In with Google / Gmail */}
       {showLoginModal && (
@@ -607,35 +740,11 @@ function App() {
               Hubungkan akun Gmail kamu untuk mempermudah identifikasi tiket dan riwayat transaksi di TIXO.
             </p>
 
-            {/* Quick Demo Login Option */}
-            <div className="mb-4 space-y-2">
-              <button
-                type="button"
-                onClick={() => handleLoginSubmit('azharsyam22@gmail.com', 'Muhammad Azharuddiya')}
-                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-[var(--line)] bg-[var(--paper)] hover:border-[var(--ink-soft)] text-xs font-semibold text-[var(--ink)] transition-all"
-              >
-                <svg viewBox="0 0 24 24" width="16" height="16">
-                  <path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.6l3.1-3.1C17.3 1.7 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.4 9 5 12 5z"/>
-                  <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.8z"/>
-                  <path fill="#FBBC05" d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.3s.2-1.5.4-2.3L1.9 7.3C.7 9.7 0 12.3 0 15s.7 5.3 1.9 7.7l3.7-2.9z"/>
-                  <path fill="#34A853" d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2-6.4-4.8L1.9 16.4C3.7 20.1 7.5 23 12 23z"/>
-                </svg>
-                Masuk sebagai Azhar (azharsyam22@gmail.com)
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleLoginSubmit('fajar@student.unsil.ac.id', 'Fajar Rizky Mulyana')}
-                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-[var(--line)] bg-[var(--paper)] hover:border-[var(--ink-soft)] text-xs font-semibold text-[var(--ink)] transition-all"
-              >
-                Masuk sebagai Fajar (fajar@student.unsil.ac.id)
-              </button>
-            </div>
-
-            <div className="relative my-4 text-center">
-              <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-[var(--line)]" /></div>
-              <span className="relative bg-[var(--paper-light)] px-2 text-[10px] text-[var(--ink-soft)] uppercase font-medium">atau ketik manual</span>
-            </div>
+            <p className="mb-4 rounded-lg border border-[var(--line)] bg-[var(--paper)] p-3 text-[11px] leading-relaxed text-[var(--ink-soft)]">
+              {tixoGateway.mode === 'demo'
+                ? 'Mode pratinjau: profil hanya disimpan sementara di perangkat ini.'
+                : 'Mode backend: profil dikirim ke layanan TIXO. Login Google terverifikasi akan diaktifkan setelah konfigurasi OAuth tersedia.'}
+            </p>
 
             <form
               onSubmit={(e) => {
@@ -666,8 +775,8 @@ function App() {
                   className="w-full px-3 py-2 text-xs rounded-lg border border-[var(--line)] bg-[var(--paper)] text-[var(--ink)]"
                 />
               </div>
-              <button type="submit" className="button button-red w-full !py-2.5 text-xs font-bold !mt-4">
-                Masuk ke TIXO
+              <button type="submit" disabled={isSigningIn} className="button button-red w-full !py-2.5 text-xs font-bold !mt-4">
+                {isSigningIn ? 'Menghubungkan…' : 'Lanjutkan'}
               </button>
             </form>
           </div>

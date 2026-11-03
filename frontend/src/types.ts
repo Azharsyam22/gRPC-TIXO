@@ -17,6 +17,20 @@ export interface BookingResponse {
   price_paid?: number
 }
 
+export interface BatchBookingResponse {
+  success: boolean
+  message: string
+  seats: Seat[]
+  total_price: number
+  price_per_ticket: number
+  transaction_id: string
+}
+
+export interface SeatSnapshot {
+  seats: Seat[]
+  schedule?: import('./showtimes').Showtime
+}
+
 export interface CancellationResponse {
   success: boolean
   message: string
@@ -41,4 +55,11 @@ export interface UserProfile {
   email: string
   name: string
   avatar_url?: string
+}
+
+export interface SignInResponse {
+  success: boolean
+  message: string
+  user?: UserProfile
+  session_token?: string
 }

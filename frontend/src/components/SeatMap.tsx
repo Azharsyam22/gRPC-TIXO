@@ -3,6 +3,7 @@ import type { Seat } from '../types'
 interface SeatMapProps {
   seats: Seat[]
   selected: string[]
+  studioName: string
   onToggle: (seat: Seat) => void
 }
 
@@ -22,7 +23,7 @@ const statusLabels = {
   BOOKED: 'Sudah dipesan',
 } as const
 
-export function SeatMap({ seats, selected, onToggle }: SeatMapProps) {
+export function SeatMap({ seats, selected, studioName, onToggle }: SeatMapProps) {
   const byNumber = new Map(seats.map((seat) => [seat.seat_number, seat]))
 
   return (
@@ -30,9 +31,9 @@ export function SeatMap({ seats, selected, onToggle }: SeatMapProps) {
       <div className="section-heading">
         <div>
           <p className="section-index">DENAH STUDIO</p>
-          <h2 id="seat-map-title">Pilih kursimu</h2>
+          <h2 id="seat-map-title">Pilih Kursi</h2>
         </div>
-        <p className="section-side-note">50 kursi <span aria-hidden="true">·</span> Studio 1</p>
+        <p className="section-side-note">50 kursi <span aria-hidden="true">·</span> {studioName}</p>
       </div>
 
       <div className="screen-area" aria-label="Arah pandang ke layar">

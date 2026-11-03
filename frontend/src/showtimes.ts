@@ -3,6 +3,11 @@ export interface Showtime {
   movieId: string
   time: string
   date: string
+  studio?: string
+  movieName?: string
+  ticketPrice?: number
+  basePrice?: number
+  isWeekend?: boolean
 }
 
 export interface MovieItem {
@@ -13,6 +18,19 @@ export interface MovieItem {
   studio: string
   synopsis: string
   rating: string
+  durationMinutes?: number
+  posterUrl?: string
+}
+
+export const moviePresentationOverrides: Record<string, Partial<MovieItem>> = {
+  'mov-04': {
+    title: 'Spider-Man: No Way Home',
+    edition: 'Marvel Studios',
+    genre: 'Action · Adventure · Sci-fi',
+    synopsis: 'Identitas Peter Parker terbongkar. Ia meminta bantuan Doctor Strange, tetapi sebuah mantra membuka ancaman dari semesta lain.',
+    rating: 'R13+',
+    posterUrl: '/posters/spiderman-no-way-home.jpg',
+  },
 }
 
 export const movieList: MovieItem[] = [
@@ -24,6 +42,7 @@ export const movieList: MovieItem[] = [
     studio: 'Studio 1 IMAX',
     synopsis: 'Seorang pilot memimpin misi antarbintang melintasi lubang cacing untuk mencari harapan baru bagi kelangsungan hidup umat manusia.',
     rating: 'R13+',
+    posterUrl: '/posters/interstellar.jpg',
   },
   {
     id: 'mov-02',
@@ -33,6 +52,7 @@ export const movieList: MovieItem[] = [
     studio: 'Studio 2 Dolby Atmos',
     synopsis: 'Paul Atreides bersatu dengan Chani dan suku Fremen untuk membalas dendam terhadap konspirator yang menghancurkan keluarganya.',
     rating: 'R13+',
+    posterUrl: '/posters/dune2.jpg',
   },
   {
     id: 'mov-03',
@@ -42,59 +62,50 @@ export const movieList: MovieItem[] = [
     studio: 'Studio 3 Premiere',
     synopsis: 'Kisah batin fisikawan J. Robert Oppenheimer memimpin Proyek Manhattan yang mengubah peradaban manusia selamanya.',
     rating: 'D17+',
+    posterUrl: '/posters/oppenheimer.jpg',
   },
   {
     id: 'mov-04',
-    title: 'Spider-Man',
-    edition: 'Beyond the Spider-Verse',
-    genre: 'Animation · Action',
+    title: 'Spider-Man: No Way Home',
+    edition: 'Marvel Studios',
+    genre: 'Action · Adventure · Sci-fi',
     studio: 'Studio 1 IMAX',
-    synopsis: 'Miles Morales bertualang menembus dimensi multiverse untuk menyelamatkan takdir setiap semesta laba-laba.',
-    rating: 'SU',
+    synopsis: 'Identitas Peter Parker terbongkar. Ia meminta bantuan Doctor Strange, tetapi sebuah mantra membuka ancaman dari semesta lain.',
+    rating: 'R13+',
+    posterUrl: '/posters/spiderman-no-way-home.jpg',
   },
 ]
 
-export const showtimes: Showtime[] = [
-  // Interstellar - Weekdays (Hari Biasa: Rp 40.000)
-  { id: 'sch-02', movieId: 'mov-01', date: '2026-11-03', time: '13.00 WIB' },
-  { id: 'sch-03', movieId: 'mov-01', date: '2026-11-03', time: '16.00 WIB' },
-  { id: 'sch-01', movieId: 'mov-01', date: '2026-11-03', time: '19.30 WIB' },
-  { id: 'sch-04', movieId: 'mov-01', date: '2026-11-03', time: '22.00 WIB' },
-  { id: 'sch-05', movieId: 'mov-01', date: '2026-11-04', time: '13.00 WIB' },
-  { id: 'sch-06', movieId: 'mov-01', date: '2026-11-04', time: '16.00 WIB' },
-  { id: 'sch-07', movieId: 'mov-01', date: '2026-11-04', time: '19.30 WIB' },
-  { id: 'sch-08', movieId: 'mov-01', date: '2026-11-04', time: '22.00 WIB' },
-  { id: 'sch-09', movieId: 'mov-01', date: '2026-11-05', time: '13.00 WIB' },
-  { id: 'sch-10', movieId: 'mov-01', date: '2026-11-05', time: '16.00 WIB' },
-  { id: 'sch-11', movieId: 'mov-01', date: '2026-11-05', time: '19.30 WIB' },
-  { id: 'sch-12', movieId: 'mov-01', date: '2026-11-05', time: '22.00 WIB' },
-
-  // Interstellar - Weekend (Sabtu & Minggu: Rp 45.000)
-  { id: 'sch-13', movieId: 'mov-01', date: '2026-11-07', time: '14.00 WIB' },
-  { id: 'sch-14', movieId: 'mov-01', date: '2026-11-07', time: '19.30 WIB' },
-  { id: 'sch-15', movieId: 'mov-01', date: '2026-11-08', time: '14.00 WIB' },
-  { id: 'sch-16', movieId: 'mov-01', date: '2026-11-08', time: '19.30 WIB' },
-
-  // Dune: Part Two
-  { id: 'sch-17', movieId: 'mov-02', date: '2026-11-03', time: '14.00 WIB' },
-  { id: 'sch-18', movieId: 'mov-02', date: '2026-11-03', time: '19.00 WIB' },
-  { id: 'sch-19', movieId: 'mov-02', date: '2026-11-07', time: '15.30 WIB' },
-  { id: 'sch-20', movieId: 'mov-02', date: '2026-11-07', time: '20.00 WIB' },
-
-  // Oppenheimer
-  { id: 'sch-21', movieId: 'mov-03', date: '2026-11-03', time: '15.00 WIB' },
-  { id: 'sch-22', movieId: 'mov-03', date: '2026-11-03', time: '20.15 WIB' },
-  { id: 'sch-23', movieId: 'mov-03', date: '2026-11-08', time: '15.00 WIB' },
-  { id: 'sch-24', movieId: 'mov-03', date: '2026-11-08', time: '20.15 WIB' },
-
-  // Spider-Man
-  { id: 'sch-25', movieId: 'mov-04', date: '2026-11-04', time: '15.00 WIB' },
-  { id: 'sch-26', movieId: 'mov-04', date: '2026-11-04', time: '20.00 WIB' },
-  { id: 'sch-27', movieId: 'mov-04', date: '2026-11-07', time: '11.30 WIB' },
-  { id: 'sch-28', movieId: 'mov-04', date: '2026-11-07', time: '17.00 WIB' },
+const scheduleDates = [
+  '2026-11-03',
+  '2026-11-04',
+  '2026-11-05',
+  '2026-11-06',
+  '2026-11-07',
+  '2026-11-08',
 ]
 
-export const defaultShowtime = showtimes[2]!
+const dailyShowtimes = ['09.00 WIB', '13.00 WIB', '16.00 WIB', '19.30 WIB', '22.00 WIB']
+export const cinemaStudios = ['Studio 1 IMAX', 'Studio 2 Dolby Atmos', 'Studio 3 Premiere']
+
+// Jadwal pratinjau diseragamkan agar setiap film punya pilihan tanggal dan jam yang sama.
+export const showtimes: Showtime[] = movieList.flatMap((movie) =>
+  cinemaStudios.flatMap((studio, studioIndex) =>
+    scheduleDates.flatMap((date) =>
+      dailyShowtimes.map((time) => ({
+        id: `demo-${movie.id}-studio-${studioIndex + 1}-${date.replaceAll('-', '')}-${time.slice(0, 5).replace('.', '')}`,
+        movieId: movie.id,
+        studio,
+        date,
+        time,
+      })),
+    ),
+  ),
+)
+
+export const defaultShowtime = showtimes.find((showtime) =>
+  showtime.movieId === 'mov-01' && showtime.studio === movieList[0]!.studio && showtime.date === '2026-11-03' && showtime.time === '19.30 WIB',
+)!
 
 /**
  * Aturan Harga Tiket TIXO:
