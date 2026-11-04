@@ -1,15 +1,26 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { SeatMap } from './components/SeatMap'
 import { ToastViewport } from './components/ToastViewport'
 import { HomePromoCarousel } from './components/HomePromoCarousel'
 import { MovieCarousel } from './components/MovieCarousel'
 import { TrailerCarousel } from './components/TrailerCarousel'
+import { BookingTrailer } from './components/BookingTrailer'
 import { createId, tixoGateway, userId } from './services/tixoGateway'
 import { defaultShowtime, getPricingForDate, movieList, showtimes, type MovieItem } from './showtimes'
-import type { ConnectionState, RecentBooking, Seat, SeatStatus, ToastMessage, UserProfile } from './types'
+import type { ConnectionState, RecentBooking, Seat, SeatStatus, ToastMessage } from './types'
 
-type Theme = 'light' | 'dark'
 type AppView = 'home' | 'booking'
+
+const bookingPosters: Record<string, string> = {
+  'mov-01': '/posters/Interstellar_portrait.jpg',
+  'mov-02': '/posters/dune2-portrait.jpg',
+  'mov-03': '/posters/oppenheimer-portrait.jpg',
+  'mov-04': '/posters/spiderman-portrait.jpg',
+}
+
+function viewFromLocation(): AppView {
+  return window.location.hash === '#booking' ? 'booking' : 'home'
+}
 
 function formatShowDay(dateValue: string) {
   const date = new Date(`${dateValue}T12:00:00`)
@@ -19,23 +30,6 @@ function formatShowDay(dateValue: string) {
   if (dateValue === today) return { top: 'HARI INI', bottom: dateText }
   if (dateValue === tomorrow) return { top: 'BESOK', bottom: dateText }
   return { top: new Intl.DateTimeFormat('id-ID', { weekday: 'short' }).format(date).toUpperCase(), bottom: dateText }
-}
-
-function readTheme(): Theme {
-  try {
-    return window.localStorage.getItem('tixo-theme') === 'dark' ? 'dark' : 'light'
-  } catch {
-    return 'light'
-  }
-}
-
-function readCurrentUser(): UserProfile | null {
-  try {
-    const raw = window.localStorage.getItem('tixo-user')
-    return raw ? JSON.parse(raw) as UserProfile : null
-  } catch {
-    return null
-  }
 }
 
 function readRecentBookings(): RecentBooking[] {
@@ -59,7 +53,7 @@ function shortId(value: string) {
 }
 
 function App() {
-  const [currentView, setCurrentView] = useState<AppView>('home')
+  const [currentView, setCurrentView] = useState<AppView>(viewFromLocation)
   const [seats, setSeats] = useState<Seat[]>([])
   const [movies, setMovies] = useState<MovieItem[]>(tixoGateway.mode === 'demo' ? movieList : [])
   const [availableShowtimes, setAvailableShowtimes] = useState(() => tixoGateway.mode === 'demo' ? showtimes : [])
@@ -69,12 +63,6 @@ function App() {
   const [activeShowtime, setActiveShowtime] = useState(defaultShowtime)
   const [activeStudio, setActiveStudio] = useState(defaultShowtime.studio || movieList[0]!.studio)
   const [activeDate, setActiveDate] = useState(defaultShowtime.date)
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(readCurrentUser)
-  const [showLoginModal, setShowLoginModal] = useState(false)
-  const [gmailInput, setGmailInput] = useState('')
-  const [nameInput, setNameInput] = useState('')
-  const [isSigningIn, setIsSigningIn] = useState(false)
-  const [theme, setTheme] = useState<Theme>(readTheme)
   const [searchQuery, setSearchQuery] = useState('')
   const [selected, setSelected] = useState<string[]>([])
   const [recentBookings, setRecentBookings] = useState<RecentBooking[]>(readRecentBookings)
@@ -88,6 +76,44 @@ function App() {
   const inFlightSeats = useRef(new Set<string>())
   const selectedRef = useRef<string[]>([])
   const loadRequest = useRef(0)
+
+  const goToView = useCallback((view: AppView, replace = false) => {
+    const hash = view === 'booking' ? '#booking' : '#home'
+    if (window.location.hash !== hash) {
+      if (replace) window.history.replaceState({}, '', hash)
+      else window.history.pushState({}, '', hash)
+    }
+    document.documentElement.scrollTop = 0
+    document.body.scrollTop = 0
+    window.scrollTo(0, 0)
+    setCurrentView(view)
+  }, [])
+
+  useEffect(() => {
+    const previousScrollRestoration = window.history.scrollRestoration
+    window.history.scrollRestoration = 'manual'
+    if (!window.location.hash) window.history.replaceState({}, '', '#home')
+    const syncView = () => setCurrentView(viewFromLocation())
+    window.addEventListener('popstate', syncView)
+    window.addEventListener('hashchange', syncView)
+    return () => {
+      window.history.scrollRestoration = previousScrollRestoration
+      window.removeEventListener('popstate', syncView)
+      window.removeEventListener('hashchange', syncView)
+    }
+  }, [])
+
+  useLayoutEffect(() => {
+    document.documentElement.scrollTop = 0
+    document.body.scrollTop = 0
+    window.scrollTo(0, 0)
+    const frame = window.requestAnimationFrame(() => {
+      document.documentElement.scrollTop = 0
+      document.body.scrollTop = 0
+      window.scrollTo(0, 0)
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [currentView, isCatalogLoading, activeMovie?.id])
 
   const loadCatalog = useCallback(async () => {
     if (tixoGateway.mode === 'demo') return
@@ -166,11 +192,6 @@ function App() {
   }, [])
 
   useEffect(() => { latestSeats.current = seats }, [seats])
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme
-    try { window.localStorage.setItem('tixo-theme', theme) } catch { /* preference stays in memory */ }
-  }, [theme])
 
   const pushToast = useCallback((title: string, detail: string, tone: ToastMessage['tone']) => {
     setToasts((current) => [...current, { id: createId(), title, detail, tone }])
@@ -256,7 +277,7 @@ function App() {
     }
 
     setActiveMovie(movie)
-    setCurrentView('booking')
+    goToView('booking')
     if (bookingSchedule.id !== activeShowtime.id) {
       setActiveStudio(bookingSchedule.studio || movie.studio)
       setActiveDate(bookingSchedule.date)
@@ -317,37 +338,6 @@ function App() {
     )
   }
 
-  async function handleLoginSubmit(email: string, name: string) {
-    if (!email || !name) {
-      pushToast('Data tidak lengkap', 'Silakan masukkan email Gmail dan nama.', 'error')
-      return
-    }
-    setIsSigningIn(true)
-    try {
-      const response = await tixoGateway.signInWithGoogle('', email, name)
-      if (!response.success || !response.user) {
-        pushToast('Login belum berhasil', response.message, 'error')
-        return
-      }
-      const user: UserProfile = response.user
-      setCurrentUser(user)
-      try { window.localStorage.setItem('tixo-user', JSON.stringify(user)) } catch { /* profile remains in memory */ }
-      setShowLoginModal(false)
-      pushToast('Profil siap digunakan', `Selamat datang, ${user.name}.`, 'success')
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Server login belum dapat dihubungi.'
-      pushToast('Login belum berhasil', detail, 'error')
-    } finally {
-      setIsSigningIn(false)
-    }
-  }
-
-  function handleLogout() {
-    setCurrentUser(null)
-    try { window.localStorage.removeItem('tixo-user') } catch { /* ignore */ }
-    pushToast('Keluar', 'Kamu telah keluar dari akun.', 'info')
-  }
-
   async function bookSelected() {
     if (!chosenSeats.length || isSubmitting) return
     setIsSubmitting(true)
@@ -355,14 +345,14 @@ function App() {
     targets.forEach((seat) => inFlightSeats.current.add(seat.seat_number))
     targets.forEach((seat) => updateSeat({ ...seat, status: 'PENDING' }))
 
-    const buyerId = currentUser ? currentUser.id : userId
+    const buyerId = userId
     const transactionId = createId()
     try {
       const response = await tixoGateway.bookSeats(
         activeShowtime.id,
         targets.map((seat) => seat.seat_number),
         buyerId,
-        currentUser?.email || '',
+        '',
         transactionId,
       )
 
@@ -403,7 +393,7 @@ function App() {
   async function cancelBooking(booking: RecentBooking) {
     if (cancelling) return
     setCancelling(booking.seat.seat_number)
-    const buyerId = currentUser ? currentUser.id : userId
+    const buyerId = userId
     try {
       const response = await tixoGateway.cancelSeat(booking.seat.schedule_id, booking.seat.seat_number, buyerId, booking.transaction_id)
       if (!response.success) {
@@ -424,45 +414,21 @@ function App() {
   }
 
   function navigateHome(anchor: string) {
-    setCurrentView('home')
+    goToView('home')
     window.setTimeout(() => document.getElementById(anchor)?.scrollIntoView({ behavior: 'smooth' }), 60)
   }
 
   function navigateBooking() {
-    setCurrentView('booking')
-    window.setTimeout(() => document.getElementById('schedule-filters')?.scrollIntoView({ behavior: 'smooth' }), 60)
+    goToView('booking')
   }
 
   return (
     <div className="site-shell min-h-dvh">
       <header className="masthead">
-        <a className="wordmark" href="#main" onClick={(event) => { event.preventDefault(); setCurrentView('home') }} aria-label="TIXO, ke beranda"><span>tixo</span><i aria-hidden="true">.</i></a>
-        <div className="masthead-tools">
-          {currentUser ? (
-            <div className="flex items-center gap-2 bg-[var(--paper-light)] border border-[var(--line)] px-2.5 py-1 rounded-full text-xs">
-              <span className="w-2 h-2 rounded-full bg-[var(--green)]" />
-              <span className="font-semibold">{currentUser.name.split(' ')[0]}</span>
-              <button type="button" onClick={handleLogout} className="text-[var(--ink-soft)] hover:text-[var(--red)] ml-1 text-[11px]" title="Keluar">Keluar</button>
-            </div>
-          ) : (
-            <button className="account-button flex items-center gap-1.5" type="button" onClick={() => setShowLoginModal(true)}>
-              <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-                <path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.6l3.1-3.1C17.3 1.7 14.8 1 12 1 7.5 1 3.7 3.6 1.9 7.3l3.7 2.9C6.5 7.4 9 5 12 5z"/>
-                <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.8z"/>
-                <path fill="#FBBC05" d="M5.6 14.8c-.2-.7-.4-1.5-.4-2.3s.2-1.5.4-2.3L1.9 7.3C.7 9.7 0 12.3 0 15s.7 5.3 1.9 7.7l3.7-2.9z"/>
-                <path fill="#34A853" d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3 0-5.5-2-6.4-4.8L1.9 16.4C3.7 20.1 7.5 23 12 23z"/>
-              </svg>
-              <span>Masuk via Gmail</span>
-            </button>
-          )}
-          <button className="theme-toggle" type="button" onClick={() => setTheme((current) => current === 'light' ? 'dark' : 'light')} aria-label={`Aktifkan tema ${theme === 'light' ? 'gelap' : 'terang'}`} title={`Tema ${theme === 'light' ? 'gelap' : 'terang'}`}>
-            {theme === 'light' ? <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.2 15.4A8.5 8.5 0 0 1 8.6 3.8 8.6 8.6 0 1 0 20.2 15.4Z" /></svg> : <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" /></svg>}
-          </button>
-          <div className={`sync-state sync-${connection}`} aria-live="polite"><i />{connectionCopy(connection)}</div>
-        </div>
+        <a className="wordmark" href="#home" onClick={(event) => { event.preventDefault(); goToView('home') }} aria-label="TIXO, ke beranda"><span>tixo</span><i aria-hidden="true">.</i></a>
       </header>
 
-      <main id="main" className="page-frame">
+      <main id="main" key={currentView} className="page-frame page-transition">
         {currentView === 'home' && <HomePromoCarousel movies={movies} />}
         <section id="now-showing" className={`home-catalog${currentView === 'home' ? '' : ' view-hidden'}`} aria-labelledby="home-title">
           <div className="home-heading">
@@ -487,16 +453,19 @@ function App() {
         {currentView === 'home' && <TrailerCarousel movies={visibleMovies} />}
 
         <section className={`booking-intro${currentView === 'booking' ? '' : ' view-hidden'}`} aria-label={`Pemesanan ${activeMovie.title}`}>
-          <button className="back-to-catalog" type="button" onClick={() => setCurrentView('home')}>
+          <button className="back-to-catalog" type="button" onClick={() => goToView('home')}>
             <span aria-hidden="true">←</span> Semua film
           </button>
           <div className="booking-film-summary">
-            <img src={activeMovie.posterUrl} alt="" />
+            <img src={bookingPosters[activeMovie.id] || activeMovie.posterUrl} alt={`Poster ${activeMovie.title}`} />
             <div>
               <p className="section-index">PILIH JADWAL & KURSI</p>
               <h1>{activeMovie.title}</h1>
-              <p>{activeMovie.edition} <i /> Rating {activeMovie.rating}</p>
+              <p className="booking-film-meta">{activeMovie.edition} <i /> {activeMovie.rating} {activeMovie.durationMinutes ? <><i /> {Math.floor(activeMovie.durationMinutes / 60)}j {activeMovie.durationMinutes % 60}m</> : null}</p>
+              <p className="booking-film-genre">{activeMovie.genre}</p>
+              <p className="booking-film-synopsis">{activeMovie.synopsis}</p>
             </div>
+            <BookingTrailer movie={activeMovie} />
           </div>
         </section>
 
@@ -509,10 +478,10 @@ function App() {
               <h2 id="showtime-title">Jadwal & Tarif</h2>
             </div>
             <div className="text-right">
-              <span className="block text-xs font-semibold text-[var(--ink)]">
+              <span className="block text-xs font-semibold text-(--ink)">
                 {pricing.isWeekend ? 'Rp 45.000 (Sabtu & Minggu)' : 'Rp 40.000 (Senin - Jumat)'}
               </span>
-              <span className="text-[10px] text-[var(--ink-soft)]">Waktu Indonesia Barat</span>
+              <span className="text-[10px] text-(--ink-soft)">Waktu Indonesia Barat</span>
             </div>
           </div>
           <div className="schedule-filter-row">
@@ -592,7 +561,7 @@ function App() {
                 <>
                   <div className="availability-line">
                     <span>{availability} kursi tersedia</span>
-                    <span className="text-xs bg-[var(--paper-light)] px-2 py-0.5 rounded border border-[var(--line)]">
+                    <span className="text-xs bg-(--paper-light) px-2 py-0.5 rounded border border-(--line)">
                       {pricing.isWeekend ? 'Tarif Weekend: Rp 45.000 / tiket' : 'Tarif Weekday: Rp 40.000 / tiket'}
                     </span>
                   </div>
@@ -636,9 +605,9 @@ function App() {
                 <strong>Rp {pricePerTicket.toLocaleString('id-ID')}</strong>
                 <small>{pricing.isWeekend ? 'Termasuk biaya akhir pekan (+Rp 5.000)' : 'Tarif standar hari biasa'}</small>
               </div>
-              <div className="order-price !border-t-2 !pt-3">
+              <div className="order-price border-t-2! pt-3!">
                 <span className="font-bold text-sm">Total Bayar</span>
-                <strong className="text-lg text-[var(--red)]">Rp {totalPrice.toLocaleString('id-ID')}</strong>
+                <strong className="text-lg text-(--accent)">Rp {totalPrice.toLocaleString('id-ID')}</strong>
                 <small>{chosenSeats.length > 0 ? `${chosenSeats.length} kursi × Rp ${pricePerTicket.toLocaleString('id-ID')}` : 'Belum ada kursi yang dipilih'}</small>
               </div>
               <fieldset className="payment-options" aria-label="Metode pembayaran">
@@ -663,7 +632,7 @@ function App() {
                 )}
               </button>
               <p className="order-footnote">
-                {currentUser ? `Memesan atas nama: ${currentUser.email}` : 'Tips: Masuk via Gmail di atas untuk menyimpan riwayat pesanan.'}
+                Riwayat pesanan tersimpan pada perangkat ini.
               </p>
             </aside>
           </div>
@@ -727,61 +696,6 @@ function App() {
           <span>Film pilihanmu, malam ini.</span>
         </div>
       </footer>
-
-      {/* Modal Sign In with Google / Gmail */}
-      {showLoginModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-[var(--paper-light)] border border-[var(--line)] rounded-2xl max-w-sm w-full p-6 shadow-2xl">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-bold text-base text-[var(--ink)]">Masuk dengan Akun Google</h3>
-              <button type="button" onClick={() => setShowLoginModal(false)} className="text-xl leading-none text-[var(--ink-soft)] hover:text-[var(--ink)]">×</button>
-            </div>
-            <p className="text-xs text-[var(--ink-soft)] mb-5">
-              Hubungkan akun Gmail kamu untuk mempermudah identifikasi tiket dan riwayat transaksi di TIXO.
-            </p>
-
-            <p className="mb-4 rounded-lg border border-[var(--line)] bg-[var(--paper)] p-3 text-[11px] leading-relaxed text-[var(--ink-soft)]">
-              {tixoGateway.mode === 'demo'
-                ? 'Mode pratinjau: profil hanya disimpan sementara di perangkat ini.'
-                : 'Mode backend: profil dikirim ke layanan TIXO. Login Google terverifikasi akan diaktifkan setelah konfigurasi OAuth tersedia.'}
-            </p>
-
-            <form
-              onSubmit={(e) => {
-                e.preventDefault()
-                handleLoginSubmit(gmailInput, nameInput)
-              }}
-              className="space-y-3"
-            >
-              <div>
-                <label className="block text-[11px] font-semibold text-[var(--ink)] mb-1">Nama Lengkap</label>
-                <input
-                  type="text"
-                  required
-                  value={nameInput}
-                  onChange={(e) => setNameInput(e.target.value)}
-                  placeholder="Contoh: Azhar Ramadhan"
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-[var(--line)] bg-[var(--paper)] text-[var(--ink)]"
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] font-semibold text-[var(--ink)] mb-1">Alamat Gmail</label>
-                <input
-                  type="email"
-                  required
-                  value={gmailInput}
-                  onChange={(e) => setGmailInput(e.target.value)}
-                  placeholder="nama@gmail.com"
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-[var(--line)] bg-[var(--paper)] text-[var(--ink)]"
-                />
-              </div>
-              <button type="submit" disabled={isSigningIn} className="button button-red w-full !py-2.5 text-xs font-bold !mt-4">
-                {isSigningIn ? 'Menghubungkan…' : 'Lanjutkan'}
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
 
       <ToastViewport messages={toasts} onDismiss={dismissToast} />
     </div>
