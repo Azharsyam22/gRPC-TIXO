@@ -585,6 +585,10 @@ function createGrpcWebGateway(): TixoGateway {
           {},
           streamMethod,
         )
+        // A healthy server stream stays open while it waits for seat events.
+        // The backend does not send an initial event, so the stream itself is
+        // the first successful connection signal.
+        onConnection('connected')
         stream.on('data', (update) => {
           retryAttempt = 0
           onConnection('connected')

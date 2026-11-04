@@ -1,166 +1,215 @@
-﻿# TIXO — Real-Time gRPC Cinema Ticketing System
+# TIXO
 
-> **Tugas Proyek Mini: Sistem Terdistribusi Berbasis RPC**  
-> Program Studi Informatika — Universitas Siliwangi  
-> Status: Active Development | Architecture: Monorepo
+TIXO adalah sistem pemesanan tiket bioskop real-time yang dibangun sebagai aplikasi terdistribusi berbasis RPC.
 
----
-
-## [AI IDE INSTRUCTIONS]
-*   **Untuk Agen AI (Cursor, GitHub Copilot, Windsurf):**
-    *   **Arsitektur Repo:** Monorepo terstruktur (`/frontend`, `/backend`, `/proto`, `/database`, `/envoy`, `/scripts`).
-    *   **Bahasa Utama:** TypeScript di Frontend dan Backend (Strict Mode enabled).
-    *   **Frontend Stack:** React 18 (Vite), Tailwind CSS, `@grpc/grpc-js` / `grpc-web`.
-    *   **Backend Stack:** Node.js, `@grpc/grpc-js`, `@grpc/proto-loader`, `mysql2/promise`.
-    *   **Database:** MySQL 8.0 dengan *Row-Level Locking* (`SELECT ... FOR UPDATE`).
-    *   **Prinsip Utama:** Semua perubahan data status kursi wajib bersifat atomic, bebas dari *race condition*, dan ter-broadcast secara *real-time* via *Server Streaming*.
-
----
-
-## Ringkasan Proyek
-**TIXO** adalah aplikasi pemesanan tiket bioskop berbasis sistem terdistribusi yang memanfaatkan protokol **gRPC** dan **gRPC-Web** untuk komunikasi berlatensi sangat rendah dan sinkronisasi status secara *real-time*. Proyek ini menyelesaikan tantangan *concurrency* saat puluhan *client* mencoba memesan kursi yang sama di milidetik yang sama (*ticket war simulation*), sekaligus menyiarkan status keterisian studio bioskop secara langsung ke seluruh pengguna yang sedang aktif tanpa me-refresh halaman.
-
----
-
-## Tech Stack
-
-| Layer | Teknologi | Alasan Pemilihan |
-| :--- | :--- | :--- |
-| **Frontend** | React 18 + Vite + TypeScript | Performa cepat, type-safety tinggi, dan ekosistem komponen UI modern. |
-| **Styling** | Tailwind CSS | Pembuatan antarmuka visual grid denah kursi interaktif tanpa CSS terpisah. |
-| **Backend** | Node.js + TypeScript | Non-blocking I/O yang handal menangani banyak koneksi streaming gRPC terdistribusi. |
-| **Engine RPC** | `@grpc/grpc-js` + Protobuf | Komunikasi biner HTTP/2 hemat *bandwidth* dan mendukung *Server Streaming*. |
-| **Database** | MySQL 8.0 (InnoDB) | Mendukung transaksi ACID dan *Row-Level Locking* (`SELECT ... FOR UPDATE`). |
-| **Proxy** | Envoy Proxy | Menjembatani request `grpc-web` (HTTP/1.1) dari *browser* ke gRPC murni (HTTP/2). |
-| **DevOps & Test** | Docker Compose + k6 | Menjalankan *multi-container* dan pengujian beban (*load test*) otomatis. |
-
----
-
-## Pembagian Tugas & Anggota Kelompok
-
-```
-                 +---------------------------------------+
-                 |              TIXO PROJECT             |
-                 +---------------------------------------+
-                                     |
-         +---------------------------+---------------------------+
-         |                           |                           |
-         v                           v                           v
-+------------------+        +------------------+        +------------------+
-|      FAJAR       |        |      AZHAR       |        |      FASHA       |
-|  Frontend Web    |        |  Backend & gRPC  |        | DevOps & Testing |
-+------------------+        +------------------+        +------------------+
-| - React UI Grid  |        | - Schema .proto  |        | - Docker Setup   |
-| - Tailwind Layout|        | - Node gRPC Server|        | - Envoy Proxy    |
-| - gRPC-Web Client|        | - MySQL Lock     |        | - k6 Load Test   |
-| - Stream Listener|        | - Retry & Dedupe |        | - Metrik & Graf  |
-+------------------+        +------------------+        +------------------+
+```text
+Frontend React
+      | gRPC-Web melalui HTTP/1.1
+      v
+Envoy Proxy :8080
+      | gRPC native melalui HTTP/2
+      v
+Backend Node.js :50051
+      |
+      v
+MySQL 8.0 :3306
 ```
 
-1. **Muhammad Azharuddiya Syam Ramadhan (Backend & Core gRPC Engineer)**
-   * Merancang kontrak protobuf `proto/tixo.proto` (4 RPCs + 1 Streaming).
-   * Mengembangkan gRPC Server di Node.js / TypeScript.
-   * Mengelola transaksi basis data MySQL dengan *Row-Level Locking* (`SELECT ... FOR UPDATE`).
-   * Mengimplementasikan *In-Memory Stream Hub* untuk broadcast event secara real-time.
+Sistem ini mendemonstrasikan komunikasi gRPC-Web dari browser, pemesanan kursi secara atomic, pembaruan status kursi secara real-time, serta pengujian perebutan kursi menggunakan k6.
 
-2. **Fajar (Frontend Web & UI/UX Engineer)**
-   * Membangun antarmuka studio bioskop interaktif (Grid Kursi 5x10) dengan React + Tailwind CSS.
-   * Mengintegrasikan `grpc-web` Client untuk pemanggilan `PesanKursi` dan `BatalPesanan`.
-   * Berlangganan ke stream `PantauStatusKursi` untuk pembaruan warna kursi tanpa *reload*.
+## Status proyek
 
-3. **Fasha (DevOps, Infrastructure & Testing Engineer)**
-   * Menyiapkan `Dockerfile` dan `docker-compose.yml` untuk memutar kontainer backend, MySQL, dan Envoy Proxy.
-   * Menyusun konfigurasi `envoy.yaml` sebagai jembatan gRPC-Web ke Native gRPC.
-   * Menulis *script* pengujian beban berbasis **k6** untuk mensimulasikan 1, 5, dan 20 *concurrent client*, serta mengekstrak metrik latensi & *throughput*.
+Fitur utama sudah divalidasi secara lokal:
 
----
+- Docker Compose berhasil menjalankan MySQL, backend, dan Envoy.
+- Frontend berhasil mengambil katalog, jadwal, harga, dan status kursi melalui Envoy.
+- Booking dari frontend tersimpan ke MySQL dan berubah menjadi `BOOKED` pada client lain.
+- k6 menampilkan latency, throughput, application rejection rate, dan gRPC error rate.
+- Setiap skenario ticket war menghasilkan tepat satu booking berhasil untuk kursi yang diperebutkan.
+- Build production frontend dan backend berhasil.
 
-## Struktur Repositori
+RPC `SignInWithGoogle` saat ini memiliki alur pembuatan atau pembaruan profil pengguna berdasarkan data login yang diterima. Verifikasi token OAuth Google asli masih menjadi pekerjaan lanjutan di bagian backend.
 
-```
-├── backend/                             # Kode Server Node.js + TypeScript (Azhar)
-│   ├── src/
-│   │   ├── config/                      # Koneksi MySQL Database Pool
-│   │   ├── services/                    # Logika Bisnis, Locking, dan Stream Hub
-│   │   └── server.ts                    # Main Entry Point gRPC Server
-│   ├── Dockerfile
-│   ├── package.json
-│   └── tsconfig.json
-├── database/                            # Skema & Inisialisasi Database
-│   └── init.sql                         # DDL Table seats, idempotency_keys & data 50 kursi
-├── frontend/                            # Kode Client React + TypeScript + Tailwind (Fajar)
-│   ├── src/
-│   │   ├── components/                  # Grid Kursi Bioskop & Modal / Toast
-│   │   ├── services/                    # gRPC-Web Client Wrapper
-│   │   └── App.tsx
-│   ├── package.json
-│   └── vite.config.ts
-├── proto/                               # Kontrak Protocol Buffers (Azhar)
-│   └── cinema.proto
-├── envoy/                               # Konfigurasi Proxy HTTP/1.1 -> HTTP/2 (Fasha)
-│   └── envoy.yaml
-├── scripts/                             # Script Testing k6 & Benchmark (Fasha)
-│   └── load_test.js
-├── docker-compose.yml                   # Orchestration Multi-Container (Fasha)
-├── product_requirements_document.md     # Product Requirements Document
-├── project_readme.md                    # Dokumentasi Utama Proyek TIXO
-└── system_design_architecture.md        # Spesifikasi Arsitektur Sistem Terdistribusi
-```
+## Pembagian tugas
 
----
+| Anggota | Bagian | Direktori utama |
+| --- | --- | --- |
+| Fajar | Frontend React dan client gRPC-Web | `frontend/` |
+| Azhar | Backend, database, dan kontrak protobuf | `backend/`, `database/`, `proto/` |
+| Fasha | Docker, Envoy, dan pengujian performa | `docker-compose.yml`, `envoy/`, `scripts/` |
 
-## Panduan Menjalankan Proyek
+Kontrak bersama berada di [proto/tixo.proto](./proto/tixo.proto). Kontrak tersebut mendefinisikan delapan RPC:
 
-### Prasyarat
-* Docker & Docker Compose
-* Node.js v18+ & npm
-* Git
+| RPC | Tipe | Fungsi |
+| --- | --- | --- |
+| `GetDaftarKursi` | Unary | Mengambil denah 50 kursi dan metadata harga. |
+| `PesanKursi` | Unary | Memesan satu kursi dengan perlindungan transaksi. |
+| `PesanBanyakKursi` | Unary | Memesan beberapa kursi dalam satu transaksi. |
+| `PantauStatusKursi` | Server streaming | Menerima perubahan status kursi secara real-time. |
+| `BatalPesanan` | Unary | Membatalkan pesanan dan mengembalikan kursi. |
+| `GetKatalogFilm` | Unary | Mengambil katalog film. |
+| `GetDaftarJadwal` | Unary | Mengambil jadwal dan harga tiket. |
+| `SignInWithGoogle` | Unary | Membuat atau memperbarui profil pengguna. |
 
-### Opsi 1: Menjalankan dengan Docker Compose (Full Stack)
-```bash
-# 1. Clone repositori
-git clone https://github.com/Azharsyam22/gRPC-TIXO
-cd gRPC-TIXO
+## Struktur repositori
 
-# 2. Jalankan infrastruktur & layanan
-docker-compose up --build -d
+```text
+backend/              Server gRPC Node.js dan TypeScript
+database/             Inisialisasi MySQL dan data seed
+envoy/                Konfigurasi Envoy gRPC-Web
+frontend/             Client React, Vite, TypeScript, dan Tailwind
+proto/                Kontrak protobuf bersama
+scripts/              Script load test k6
+docker-compose.yml    Orkestrasi container lokal
+TEAM_GUIDE.md         Pembagian tugas dan aturan proyek
 ```
 
-### Opsi 2: Menjalankan Secara Lokal (Untuk Development Per Peran)
+## Prasyarat
 
-#### 1. Inisialisasi Database MySQL
-Pastikan MySQL 8.0 berjalan dan eksekusi skrip `database/init.sql`.
+- Docker Desktop dengan engine Linux/WSL2 aktif.
+- Node.js versi 18 atau lebih baru dan npm.
+- k6 untuk pengujian performa.
+- Git.
 
-#### 2. Menjalankan Backend gRPC Server (Azhar)
-```bash
-cd backend
-npm install
-npm run dev
-# Server gRPC akan berjalan di port 50051
+## Menjalankan sistem lokal
+
+Jalankan perintah berikut dari root repositori:
+
+```powershell
+cd "D:\KULIAH\SMT 5\gRPC-TIXO"
+docker compose up -d
+docker compose ps
 ```
 
-#### 3. Menjalankan Envoy Proxy (Fasha)
-```bash
-# Menggunakan Docker
-docker run -d -p 8080:8080 -v $(pwd)/envoy/envoy.yaml:/etc/envoy/envoy.yaml envoyproxy/envoy:v1.28.0
+Status service yang diharapkan:
+
+| Service | Port | Status |
+| --- | ---: | --- |
+| `tixo-mysql` | `3306` | `healthy` |
+| `tixo-backend` | `50051` | `Up` |
+| `tixo-envoy` | `8080` | `Up` |
+
+Pada setup Docker Desktop Windows yang digunakan saat ini, build backend baru mungkin perlu menjalankan legacy builder:
+
+```powershell
+$env:DOCKER_BUILDKIT="0"
+docker compose up --build -d
 ```
 
-#### 4. Menjalankan Frontend Web (Fajar)
-```bash
+Gunakan `--build` hanya jika image backend perlu dibuat ulang.
+
+## Menjalankan frontend
+
+Konfigurasi gRPC-Web lokal tersimpan di [frontend/.env.local](./frontend/.env.local):
+
+```dotenv
+VITE_TIXO_MODE=grpc-web
+VITE_TIXO_GRPC_WEB_URL=http://localhost:8080
+```
+
+Jalankan Vite dari terminal kedua:
+
+```powershell
+cd "D:\KULIAH\SMT 5\gRPC-TIXO\frontend"
+npm.cmd run dev -- --port 5174
+```
+
+Buka [http://localhost:5174](http://localhost:5174).
+
+Frontend menggunakan gateway demo berbasis memory jika `VITE_TIXO_MODE` bukan `grpc-web`. Booking pada mode demo tidak mengubah database MySQL.
+
+## Menjalankan load test k6
+
+Pastikan Docker Compose tetap berjalan, lalu jalankan k6 dari root repositori:
+
+```powershell
+cd "D:\KULIAH\SMT 5\gRPC-TIXO"
+k6 run scripts/load_test.js
+```
+
+Script memiliki tiga skenario:
+
+- `baseline`: satu virtual client dengan satu percobaan booking.
+- `ticket_war_5`: lima client memperebutkan kursi yang sama.
+- `ticket_war_20`: dua puluh client memperebutkan kursi yang sama.
+
+Untuk menjalankan pengujian berikutnya, gunakan jadwal dan kursi baru:
+
+```powershell
+k6 run `
+  -e BASELINE_SCHEDULE_ID=sch-14 `
+  -e WAR5_SCHEDULE_ID=sch-15 `
+  -e WAR20_SCHEDULE_ID=sch-16 `
+  -e BASELINE_SEAT=A1 `
+  -e WAR5_SEAT=A1 `
+  -e WAR20_SEAT=A1 `
+  scripts/load_test.js
+```
+
+Output k6 mencakup:
+
+- rata-rata latency booking,
+- throughput dalam attempts per detik,
+- application rejection rate,
+- gRPC error rate,
+- jumlah percobaan, sukses, penolakan, dan latency per skenario.
+
+Penolakan aplikasi adalah hasil bisnis yang wajar saat ticket war. Artinya client tersebut kalah mendapatkan kursi. gRPC error rate digunakan untuk mengukur kegagalan transport atau RPC.
+
+## Data jadwal dan kursi
+
+Semua film menggunakan pola jadwal yang seragam:
+
+- 4 film.
+- 3 studio: Studio 1 IMAX, Studio 2 Dolby Atmos, dan Studio 3 Premiere.
+- 6 tanggal: 3 sampai 8 November 2026.
+- 5 jam tayang: 09.00, 13.00, 16.00, 19.30, dan 22.00 WIB.
+- 50 kursi untuk setiap jadwal.
+- Total 360 jadwal.
+
+Aturan harga tiket:
+
+- Senin sampai Jumat: Rp 40.000.
+- Sabtu dan Minggu: Rp 45.000.
+
+Seed yang sama tersedia di [database/init.sql](./database/init.sql) dan [backend/src/config/schema.sql](./backend/src/config/schema.sql).
+
+## Reset data lokal
+
+Untuk mengembalikan database lokal ke kondisi seed:
+
+```powershell
+docker compose down -v
+docker compose up -d
+```
+
+Perintah tersebut menghapus seluruh data MySQL lokal, termasuk booking hasil testing. Gunakan hanya untuk development atau demo baru.
+
+Untuk menghentikan container tanpa menghapus volume database:
+
+```powershell
+docker compose down
+```
+
+## Diagnostik
+
+```powershell
+docker compose ps
+docker compose logs -f backend envoy
+docker compose logs --tail=100 mysql
+```
+
+Build frontend dan backend:
+
+```powershell
 cd frontend
-npm install
-npm run dev
-# Akses aplikasi di browser melalui http://localhost:5173
+npm.cmd run build
+
+cd ..\backend
+npm.cmd run type-check
+npm.cmd run build
 ```
 
----
+## Hasil concurrency yang diharapkan
 
-## Pengujian Konkurensi & Beban (k6)
-
-Untuk menguji apakah sistem aman dari *race condition* saat beberapa pengguna berebut kursi yang sama:
-```bash
-# Jalankan load test simulasi 20 concurrent clients
-k6 run --vus 20 --iterations 20 scripts/load_test.js
-```
-
-**Hasil yang diharapkan:** Tepat 1 pemesan berhasil mendapatkan kursi, dan 19 lainnya ditolak secara aman tanpa terjadi *corrupted state* pada database.
+Pada setiap skenario ticket war, tepat satu request harus berhasil memesan kursi yang diperebutkan. Request lainnya harus ditolak sebagai penolakan bisnis yang aman. Database tidak boleh memiliki dua booking berhasil untuk pasangan `(schedule_id, seat_number)` yang sama.
