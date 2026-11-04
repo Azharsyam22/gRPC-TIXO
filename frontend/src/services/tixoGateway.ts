@@ -619,9 +619,9 @@ export function createId(): string {
 function getStoredId(key: string): string {
   const created = createId()
   try {
-    const existing = window.localStorage.getItem(key)
+    const existing = window.sessionStorage.getItem(key)
     if (existing) return existing
-    window.localStorage.setItem(key, created)
+    window.sessionStorage.setItem(key, created)
   } catch {
     return created
   }

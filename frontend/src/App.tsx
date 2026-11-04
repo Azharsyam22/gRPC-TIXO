@@ -35,7 +35,7 @@ function formatShowDay(dateValue: string) {
 function readRecentBookings(): RecentBooking[] {
   if (tixoGateway.mode === 'demo') return []
   try {
-    return JSON.parse(window.localStorage.getItem('tixo-recent-bookings') || '[]') as RecentBooking[]
+    return JSON.parse(window.sessionStorage.getItem('tixo-recent-bookings') || '[]') as RecentBooking[]
   } catch {
     return []
   }
@@ -250,7 +250,7 @@ function App() {
 
   useEffect(() => {
     if (tixoGateway.mode === 'grpc-web') {
-      window.localStorage.setItem('tixo-recent-bookings', JSON.stringify(recentBookings))
+      window.sessionStorage.setItem('tixo-recent-bookings', JSON.stringify(recentBookings))
     }
   }, [recentBookings])
 
@@ -398,6 +398,9 @@ function App() {
       const response = await tixoGateway.cancelSeat(booking.seat.schedule_id, booking.seat.seat_number, buyerId, booking.transaction_id)
       if (!response.success) {
         if (response.seat) updateSeat(response.seat)
+        if (response.seat?.status === 'AVAILABLE') {
+          setRecentBookings((current) => current.filter((item) => item.transaction_id !== booking.transaction_id))
+        }
         pushToast('Pesanan belum dibatalkan', response.message, 'error')
         return
       }
